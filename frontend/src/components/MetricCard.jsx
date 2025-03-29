@@ -9,7 +9,7 @@ export function MetricCard({ title, value, icon: Icon, status }) {
   }
 
   return (
-    <div className="bg-black p-6 rounded-xl shadow-sm border border-slate-200 hover:border-slate-300 transition-colors duration-200">
+    <div className="bg-black mt-14 p-6 rounded-xl shadow-sm border border-slate-200 hover:border-slate-300 transition-colors duration-200">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-slate-500">{title}</p>
