@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Quality Monitor</title>
+    <link rel="stylesheet" href="static/css/style.css">
+    <script src="static/js/chart.js"></script>
+    <script src="static/js/chart-adapter.js"></script>
+    <script src="static/js/app.js" defer></script>
+</head>
+<body>
+    <h1>Water Quality Monitor</h1>
+    <div id="connection-status">Initializing...</div>
+    
+    <div class="data-container">
+        <div class="data-box">
+            <h3>Temperature</h3>
+            <div id="temperature" class="value">--</div>
+        </div>
+        <div class="data-box">
+            <h3>pH Level</h3>
+            <div id="ph" class="value">--</div>
+        </div>
+        <div class="data-box">
+            <h3>Turbidity</h3>
+            <div id="turbidity" class="value">--</div>
+        </div>
+        <div class="data-box">
+            <h3>Water Level</h3>
+            <div id="waterLevel" class="value">--</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="chart"></canvas>
+    </div>
+
+    <div id="last-update"></div>
+</body>
+</html> 
