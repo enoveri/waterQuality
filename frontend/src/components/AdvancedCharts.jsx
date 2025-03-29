@@ -12,6 +12,8 @@ import {
   Filler,
   TimeScale
 } from 'chart.js'
+import { enUS } from 'date-fns/locale'
+import 'chartjs-adapter-date-fns'
 import { Line, Bar, Scatter } from 'react-chartjs-2'
 import { 
   LineChart as LineIcon, 
@@ -23,7 +25,6 @@ import {
   ArrowDownUp,
   X
 } from 'lucide-react'
-import 'chartjs-adapter-date-fns'
 import regression from 'regression'
 import { SettingsContext } from '../App'
 
@@ -426,8 +427,50 @@ export function AdvancedCharts({ dataHistory }) {
       }
     }, [dataPoints, chartType, xVariable, yVariable, regressionLine])
 
+    // Function to determine appropriate time units based on time range
+    const getTimeConfig = (range, chartType, timeFormat) => {
+      // Default config for scatter plots (not time-based)
+      if (chartType === 'scatter') return {}
+      
+      // For time-based charts, determine units based on selected range
+      let unit = 'minute'
+      let tooltipFormat = timeFormat === '12h' ? 'MMM d, h:mm a' : 'MMM d, HH:mm'
+      let displayFormats = {
+        minute: timeFormat === '12h' ? 'h:mm a' : 'HH:mm',
+        hour: timeFormat === '12h' ? 'h:mm a' : 'HH:mm',
+        day: 'MMM d',
+        second: 'HH:mm:ss',
+        millisecond: 'HH:mm:ss.SSS'
+      }
+      
+      // Adjust units based on time range
+      if (range === '1m' || range === '5m') {
+        unit = 'second'
+        tooltipFormat = 'HH:mm:ss'
+      } else if (range === '15m' || range === '1h') {
+        unit = 'minute'
+        tooltipFormat = timeFormat === '12h' ? 'h:mm:ss a' : 'HH:mm:ss'
+      } else if (range === 'day') {
+        unit = 'hour'
+      } else if (range === 'week' || range === 'month') {
+        unit = 'day'
+      } else if (range === 'year') {
+        unit = 'month'
+        displayFormats.month = 'MMM yyyy'
+        tooltipFormat = 'MMM yyyy'
+      }
+      
+      return {
+        unit,
+        tooltipFormat,
+        displayFormats
+      }
+    }
+
     // Chart options with timezone support
     const options = useMemo(() => {
+      const timeConfig = getTimeConfig(timeRange, chartType, timeFormat)
+      
       const baseOptions = {
         responsive: true,
         maintainAspectRatio: true,
@@ -470,9 +513,14 @@ export function AdvancedCharts({ dataHistory }) {
                   return '';
                 }
                 
-                const item = tooltipItems[0];
-                const dataPoint = dataPoints[item.dataIndex];
-                return dataPoint && dataPoint.x ? formatDate(dataPoint.x) : '';
+                try {
+                  const item = tooltipItems[0];
+                  const dataPoint = dataPoints[item.dataIndex];
+                  return dataPoint && dataPoint.x ? formatDate(dataPoint.x) : '';
+                } catch (error) {
+                  console.error("Error formatting tooltip title:", error);
+                  return '';
+                }
               }
             }
           }
@@ -532,20 +580,20 @@ export function AdvancedCharts({ dataHistory }) {
           x: {
             type: 'time',
             time: {
-              unit: 'minute',
-              displayFormats: {
+              unit: timeConfig.unit || 'minute',
+              displayFormats: timeConfig.displayFormats || {
                 minute: timeFormat === '12h' ? 'h:mm a' : 'HH:mm',
                 hour: timeFormat === '12h' ? 'h:mm a' : 'HH:mm',
                 day: 'MMM d',
+                second: 'HH:mm:ss',
+                millisecond: 'HH:mm:ss.SSS'
               },
-              tooltipFormat: timeFormat === '12h' ? 'MMM d, h:mm a' : 'MMM d, HH:mm',
+              tooltipFormat: timeConfig.tooltipFormat,
             },
             adapters: {
               date: {
-                locale: {
-                  code: 'en',
-                },
-              },
+                locale: enUS
+              }
             },
             title: {
               display: true,
@@ -583,7 +631,39 @@ export function AdvancedCharts({ dataHistory }) {
           },
         }
       }
-    }, [chartType, xVariable, yVariable, VARIABLES, timeFormat, dataPoints])
+    }, [chartType, xVariable, yVariable, VARIABLES, timeFormat, dataPoints, timeRange])
+
+    // Effect to update chart with appropriate time unit when time range changes
+    useEffect(() => {
+      if (chartType !== 'scatter') {
+        try {
+          // Use a safer way to access the chart instance
+          const chartElements = document.querySelectorAll('canvas');
+          for (const canvas of chartElements) {
+            if (canvas.__chartjs__?.chart) {
+              const chart = canvas.__chartjs__.chart;
+              const timeConfig = getTimeConfig(timeRange, chartType, timeFormat);
+              
+              // Update chart time settings if applicable
+              if (chart.options?.scales?.x?.time) {
+                chart.options.scales.x.time.unit = timeConfig.unit || 'minute';
+                chart.options.scales.x.time.tooltipFormat = timeConfig.tooltipFormat;
+                
+                if (timeConfig.displayFormats) {
+                  Object.assign(chart.options.scales.x.time.displayFormats || {}, timeConfig.displayFormats);
+                }
+                
+                // Force update
+                chart.update('none');
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error updating chart time unit:", error);
+          // Don't let errors crash the component
+        }
+      }
+    }, [timeRange, chartType, timeFormat])
 
     return (
       <div className="space-y-6">

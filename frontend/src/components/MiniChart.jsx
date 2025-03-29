@@ -1,4 +1,7 @@
 import { Line } from 'react-chartjs-2'
+// Import adapter first before registering components
+import { enUS } from 'date-fns/locale'
+import 'chartjs-adapter-date-fns'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -68,21 +71,56 @@ export function MiniChart({ data, label, color, unit }) {
             return label;
           },
           title: function(context) {
-            if (!lastItems[context[0].dataIndex]?.timestamp) {
+            try {
+              if (!lastItems[context[0].dataIndex]?.timestamp) {
+                return '';
+              }
+              
+              // Format time based on user preference
+              const timestamp = new Date(lastItems[context[0].dataIndex].timestamp);
+              const options = {
+                hour: 'numeric',
+                minute: 'numeric',
+                second: 'numeric',
+                hour12: timeFormat === '12h'
+              };
+              
+              return new Intl.DateTimeFormat('en-US', options).format(timestamp);
+            } catch (error) {
+              console.error("Error formatting tooltip title:", error);
               return '';
             }
-            
-            // Format time based on user preference
-            const timestamp = new Date(lastItems[context[0].dataIndex].timestamp);
-            const options = {
-              hour: 'numeric',
-              minute: 'numeric',
-              second: 'numeric',
-              hour12: timeFormat === '12h'
-            };
-            
-            return timestamp.toLocaleTimeString(undefined, options);
+          },
+          // Add millisecond precision for detailed view
+          afterTitle: function(context) {
+            try {
+              if (!lastItems[context[0].dataIndex]?.timestamp) {
+                return '';
+              }
+              
+              // Show additional milliseconds for more precise time reading
+              const timestamp = new Date(lastItems[context[0].dataIndex].timestamp);
+              return `.${timestamp.getMilliseconds().toString().padStart(3, '0')}`;
+            } catch (error) {
+              console.error("Error formatting tooltip after title:", error);
+              return '';
+            }
           }
+        },
+        displayColors: true,
+        backgroundColor: (ctx) => {
+          try {
+            return ctx.chart.data.datasets[0].borderColor + 'CC'; // Semi-transparent background matching chart color
+          } catch (error) {
+            return 'rgba(0,0,0,0.7)';
+          }
+        },
+        padding: 6,
+        titleFont: {
+          size: 12
+        },
+        bodyFont: {
+          size: 11
         }
       }
     },
@@ -100,6 +138,11 @@ export function MiniChart({ data, label, color, unit }) {
     elements: {
       line: {
         borderWidth: 1.5
+      },
+      point: {
+        radius: 0,
+        hitRadius: 10,
+        hoverRadius: 4
       }
     },
     layout: {

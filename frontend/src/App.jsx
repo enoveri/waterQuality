@@ -9,6 +9,7 @@ import { AlertsSection } from './components/AlertsSection'
 import { SensorHealth } from './components/SensorHealth'
 import { MiniChart } from './components/MiniChart'
 import { AdvancedCharts } from './components/AdvancedCharts'
+import { History } from './components/History'
 import { useESP32Data } from './hooks/useESP32Data'
 
 // Create Theme Context
@@ -139,16 +140,6 @@ function Dashboard({ data, dataHistory, error, thresholds, getStatus, getOverall
 
       <Chart data={data} units={units} />
     </>
-  )
-}
-
-// History component (placeholder)
-function History() {
-  return (
-    <div className="flex justify-between items-center mb-6">
-      <h1 className="text-2xl font-semibold text-gray-900">Historical Data</h1>
-      <p className="text-gray-600">Coming soon...</p>
-    </div>
   )
 }
 
@@ -1140,7 +1131,15 @@ function App() {
                         />
                       } 
                     />
-                    <Route path="/history" element={<History />} />
+                    <Route 
+                      path="/history" 
+                      element={
+                        <History 
+                          dataHistory={dataHistory} 
+                          thresholds={thresholds}
+                        />
+                      } 
+                    />
                     <Route 
                       path="/charts" 
                       element={<Charts dataHistory={dataHistory} units={units} />} 

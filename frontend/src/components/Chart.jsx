@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useContext } from 'react'
 import { Line } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -12,12 +12,14 @@ import {
   TimeScale,
   Filler
 } from 'chart.js'
-import zoomPlugin from 'chartjs-plugin-zoom'
+// Import adapter first before registering components
+import { enUS } from 'date-fns/locale'
 import 'chartjs-adapter-date-fns'
+import zoomPlugin from 'chartjs-plugin-zoom'
 import { ArrowLeft, ArrowRight, ZoomIn, ZoomOut, RotateCcw, Play, Pause } from 'lucide-react'
-import { useContext } from 'react'
 import { SettingsContext } from '../App'
 
+// Register components in the correct order
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -27,8 +29,8 @@ ChartJS.register(
   Tooltip,
   Legend,
   TimeScale,
-  zoomPlugin,
-  Filler
+  Filler,
+  zoomPlugin
 )
 
 // Disable all animations globally
@@ -40,6 +42,7 @@ const MAX_DATA_POINTS = 100; // Increased to store more history
 const DEFAULT_TIME_WINDOW_SECONDS = 60; // Default visible window: 60 seconds
 
 export const Chart = ({ data, units }) => {
+  const { timeFormat } = useContext(SettingsContext);
   const chartRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [timeWindow, setTimeWindow] = useState(DEFAULT_TIME_WINDOW_SECONDS);
@@ -254,10 +257,48 @@ export const Chart = ({ data, units }) => {
     }
   };
 
+  // Add a new function to update the time unit based on zoom level
+  const updateTimeUnit = (windowInSeconds) => {
+    if (!chartRef.current) return;
+    
+    const chart = chartRef.current;
+    
+    // Determine appropriate time unit based on window size
+    let unit = 'second';
+    let tooltipFormat = 'HH:mm:ss.SSS';
+    
+    if (windowInSeconds > 60 * 5) { // More than 5 minutes shown
+      unit = 'minute';
+      tooltipFormat = 'HH:mm:ss';
+    }
+    
+    if (windowInSeconds > 60 * 60 * 2) { // More than 2 hours shown
+      unit = 'hour';
+      tooltipFormat = 'MMM d, HH:mm';
+    }
+    
+    if (windowInSeconds > 60 * 60 * 24 * 2) { // More than 2 days shown
+      unit = 'day';
+      tooltipFormat = 'MMM d, yyyy';
+    }
+    
+    try {
+      // Update chart time settings - handle with care to avoid errors
+      if (chart.options && chart.options.scales && chart.options.scales.x && chart.options.scales.x.time) {
+        chart.options.scales.x.time.unit = unit;
+        chart.options.scales.x.time.tooltipFormat = tooltipFormat;
+        chart.update('none');
+      }
+    } catch (error) {
+      console.error('Error updating time unit:', error);
+      // Don't let errors crash the component
+    }
+  };
+
   const options = {
     responsive: true,
     maintainAspectRatio: true,
-    aspectRatio: 2.5, // Add fixed aspect ratio
+    aspectRatio: 2.5,
     animation: false,
     animations: {
       colors: false,
@@ -286,7 +327,9 @@ export const Chart = ({ data, units }) => {
         enabled: true,
         callbacks: {
           title: function(context) {
-            // Format time based on user preference
+            if (!context[0] || !context[0].label) return '';
+            
+            // For time axis, format according to user preference
             const timeValue = context[0].label;
             if (timeFormat === '12h') {
               // Convert 24h format to 12h format
@@ -298,6 +341,21 @@ export const Chart = ({ data, units }) => {
                 : `${hour}:00 AM`;
             }
             return timeValue;
+          },
+          // Add millisecond precision for small time windows
+          afterTitle: function(context) {
+            if (!context[0] || !context[0].raw) return '';
+            
+            const dataPoint = context[0].raw;
+            if (dataPoint && dataPoint.x && timeWindow < 20) {
+              // If zoomed in very closely, show milliseconds
+              try {
+                return new Date(dataPoint.x).toISOString().split('T')[1].slice(0, -1);
+              } catch (e) {
+                return '';
+              }
+            }
+            return '';
           }
         }
       },
@@ -341,7 +399,7 @@ export const Chart = ({ data, units }) => {
           drawOnChartArea: true,
         },
         ticks: {
-          maxTicksLimit: 6, // Limit the number of ticks
+          maxTicksLimit: 6,
           padding: 2,
           font: {
             size: 9
@@ -366,7 +424,7 @@ export const Chart = ({ data, units }) => {
           drawOnChartArea: false,
         },
         ticks: {
-          maxTicksLimit: 6, // Limit the number of ticks
+          maxTicksLimit: 6,
           padding: 2,
           font: {
             size: 9
@@ -378,9 +436,18 @@ export const Chart = ({ data, units }) => {
         time: {
           unit: 'second',
           displayFormats: {
-            second: 'HH:mm:ss'
+            millisecond: 'HH:mm:ss.SSS',
+            second: 'HH:mm:ss',
+            minute: 'HH:mm',
+            hour: 'HH:mm',
+            day: 'MMM d',
           },
-          tooltipFormat: 'HH:mm:ss'
+          tooltipFormat: 'HH:mm:ss.SSS'
+        },
+        adapters: {
+          date: {
+            locale: enUS
+          }
         },
         title: {
           display: true,
@@ -392,7 +459,7 @@ export const Chart = ({ data, units }) => {
         },
         ticks: {
           autoSkip: true,
-          maxTicksLimit: 5,
+          maxTicksLimit: 8,
           major: {
             enabled: true
           },
