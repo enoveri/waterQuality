@@ -9,11 +9,14 @@ import {
   Title,
   Tooltip,
   Legend,
-  TimeScale
+  TimeScale,
+  Filler
 } from 'chart.js'
 import zoomPlugin from 'chartjs-plugin-zoom'
 import 'chartjs-adapter-date-fns'
 import { ArrowLeft, ArrowRight, ZoomIn, ZoomOut, RotateCcw, Play, Pause } from 'lucide-react'
+import { useContext } from 'react'
+import { SettingsContext } from '../App'
 
 ChartJS.register(
   CategoryScale,
@@ -24,7 +27,8 @@ ChartJS.register(
   Tooltip,
   Legend,
   TimeScale,
-  zoomPlugin
+  zoomPlugin,
+  Filler
 )
 
 // Disable all animations globally
@@ -35,7 +39,7 @@ ChartJS.defaults.datasets.line.animation = false;
 const MAX_DATA_POINTS = 100; // Increased to store more history
 const DEFAULT_TIME_WINDOW_SECONDS = 60; // Default visible window: 60 seconds
 
-export const Chart = ({ data }) => {
+export const Chart = ({ data, units }) => {
   const chartRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [timeWindow, setTimeWindow] = useState(DEFAULT_TIME_WINDOW_SECONDS);
@@ -253,6 +257,7 @@ export const Chart = ({ data }) => {
   const options = {
     responsive: true,
     maintainAspectRatio: true,
+    aspectRatio: 2.5, // Add fixed aspect ratio
     animation: false,
     animations: {
       colors: false,
@@ -266,9 +271,35 @@ export const Chart = ({ data }) => {
     plugins: {
       legend: {
         position: 'top',
+        align: 'start',
+        labels: {
+          boxWidth: 12,
+          padding: 6,
+          usePointStyle: true,
+          font: {
+            size: 10
+          }
+        },
+        margin: 2
       },
       tooltip: {
-        enabled: true
+        enabled: true,
+        callbacks: {
+          title: function(context) {
+            // Format time based on user preference
+            const timeValue = context[0].label;
+            if (timeFormat === '12h') {
+              // Convert 24h format to 12h format
+              const hour = parseInt(timeValue.split(':')[0]);
+              if (hour === 0) return '12:00 AM';
+              if (hour === 12) return '12:00 PM';
+              return hour > 12 
+                ? `${hour - 12}:00 PM` 
+                : `${hour}:00 AM`;
+            }
+            return timeValue;
+          }
+        }
       },
       zoom: {
         pan: {
@@ -299,7 +330,22 @@ export const Chart = ({ data }) => {
         max: 100,
         title: {
           display: true,
-          text: 'Value'
+          text: 'Value',
+          font: {
+            size: 10
+          },
+          padding: { top: 0, bottom: 2 }
+        },
+        grid: {
+          drawBorder: true,
+          drawOnChartArea: true,
+        },
+        ticks: {
+          maxTicksLimit: 6, // Limit the number of ticks
+          padding: 2,
+          font: {
+            size: 9
+          }
         }
       },
       y1: {
@@ -310,11 +356,22 @@ export const Chart = ({ data }) => {
         max: 14,
         title: {
           display: true,
-          text: 'pH'
+          text: 'pH',
+          font: {
+            size: 10
+          },
+          padding: { top: 0, bottom: 2 }
         },
         grid: {
           drawOnChartArea: false,
         },
+        ticks: {
+          maxTicksLimit: 6, // Limit the number of ticks
+          padding: 2,
+          font: {
+            size: 9
+          }
+        }
       },
       x: {
         type: 'time',
@@ -327,7 +384,11 @@ export const Chart = ({ data }) => {
         },
         title: {
           display: true,
-          text: 'Time'
+          text: 'Time',
+          font: {
+            size: 10
+          },
+          padding: { top: 2, bottom: 0 }
         },
         ticks: {
           autoSkip: true,
@@ -335,14 +396,27 @@ export const Chart = ({ data }) => {
           major: {
             enabled: true
           },
+          padding: 2,
           font: function(context) {
             if (context.tick && context.tick.major) {
               return {
-                weight: 'bold'
+                weight: 'bold',
+                size: 9
               };
             }
+            return {
+              size: 9
+            };
           }
         }
+      }
+    },
+    layout: {
+      padding: {
+        top: 2,
+        right: 2, 
+        bottom: 2,
+        left: 2
       }
     },
     elements: {
@@ -405,82 +479,61 @@ export const Chart = ({ data }) => {
   }
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold">Real-time Monitoring</h2>
-        <button
-          onClick={toggleAutoScroll}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded ${
-            autoScroll 
-              ? 'bg-blue-100 text-blue-800' 
-              : 'bg-gray-100 text-gray-800'
-          }`}
-          title={autoScroll ? "Disable auto-scrolling" : "Enable auto-scrolling"}
-        >
-          {autoScroll ? (
-            <>
-              <Pause size={16} />
-              <span>Auto-scroll</span>
-            </>
-          ) : (
-            <>
-              <Play size={16} />
-              <span>Auto-scroll</span>
-            </>
-          )}
-        </button>
-      </div>
-      
-      <div className="chart-container" style={{ height: '400px' }}>
-        <Line ref={chartRef} options={options} data={chartConfig} />
-      </div>
-      
-      <div className="flex items-center justify-between mt-4">
-        <div className="text-xs text-gray-500">
-          {autoScroll 
-            ? 'Auto-scrolling enabled - chart will follow latest data' 
-            : 'Manual mode - interact with chart or use controls below'
-          }
-        </div>
-        
-        <div className="flex space-x-2">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-2 transition-colors duration-300 overflow-hidden">
+      <div className="flex justify-between mb-1">
+        <h2 className="text-base font-medium dark:text-white">Real-time Data</h2>
+        <div className="flex space-x-1">
           <button 
-            onClick={handleScrollLeft}
-            className="p-1 rounded hover:bg-gray-100"
-            title="Scroll back in time"
+            onClick={handleZoomOut}
+            className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+            title="Zoom out"
           >
-            <ArrowLeft size={20} />
+            <ZoomOut size={16} />
           </button>
           <button 
             onClick={handleZoomIn}
-            className="p-1 rounded hover:bg-gray-100"
+            className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
             title="Zoom in"
           >
-            <ZoomIn size={20} />
+            <ZoomIn size={16} />
           </button>
           <button 
-            onClick={handleReset}
-            className={`p-1.5 rounded hover:bg-gray-100 ${autoScroll ? 'bg-blue-100' : ''}`}
-            title="Reset view to latest data"
+            onClick={handleScrollLeft}
+            className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+            title="Move left"
           >
-            <RotateCcw size={18} />
-          </button>
-          <button 
-            onClick={handleZoomOut}
-            className="p-1 rounded hover:bg-gray-100"
-            title="Zoom out"
-          >
-            <ZoomOut size={20} />
+            <ArrowLeft size={16} />
           </button>
           <button 
             onClick={handleScrollRight}
-            className="p-1 rounded hover:bg-gray-100"
-            title="Scroll forward in time"
+            className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+            title="Move right"
           >
-            <ArrowRight size={20} />
+            <ArrowRight size={16} />
+          </button>
+          <button 
+            onClick={handleReset}
+            className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+            title="Reset view to latest data"
+          >
+            <RotateCcw size={16} />
+          </button>
+          <button 
+            onClick={() => setAutoScroll(!autoScroll)}
+            className={`p-1 rounded-full ${
+              autoScroll 
+                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' 
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+            }`}
+            title={autoScroll ? "Auto-scroll enabled" : "Auto-scroll disabled"}
+          >
+            {autoScroll ? <Pause size={16} /> : <Play size={16} />}
           </button>
         </div>
       </div>
+      <div className="w-full h-[calc(100%-36px)] min-h-[260px]">
+        <Line ref={chartRef} data={{ datasets }} options={options} />
+      </div>
     </div>
   )
-} 
+}

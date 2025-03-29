@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 
 const ESP32_IP = '192.168.4.1' // Default IP when ESP32 is in AP mode
+const MAX_HISTORY_POINTS = 300 // Store 5 minutes of data at 1 second intervals
 
 export const useESP32Data = () => {
   const [data, setData] = useState({
@@ -8,6 +9,12 @@ export const useESP32Data = () => {
     pH: 0,
     turbidity: 0,
     waterLevel: 0
+  })
+  const [dataHistory, setDataHistory] = useState({
+    temperature: [],
+    pH: [],
+    turbidity: [],
+    waterLevel: []
   })
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState(null)
@@ -27,7 +34,28 @@ export const useESP32Data = () => {
         eventSource.onmessage = (event) => {
           try {
             const newData = JSON.parse(event.data)
+            const timestamp = new Date()
+
+            // Update current data
             setData(newData)
+
+            // Update history
+            setDataHistory(prev => {
+              const newHistory = {
+                temperature: [...prev.temperature, { timestamp, value: newData.temperature }],
+                pH: [...prev.pH, { timestamp, value: newData.pH }],
+                turbidity: [...prev.turbidity, { timestamp, value: newData.turbidity }],
+                waterLevel: [...prev.waterLevel, { timestamp, value: newData.waterLevel }]
+              }
+
+              // Keep only the last MAX_HISTORY_POINTS
+              return {
+                temperature: newHistory.temperature.slice(-MAX_HISTORY_POINTS),
+                pH: newHistory.pH.slice(-MAX_HISTORY_POINTS),
+                turbidity: newHistory.turbidity.slice(-MAX_HISTORY_POINTS),
+                waterLevel: newHistory.waterLevel.slice(-MAX_HISTORY_POINTS)
+              }
+            })
           } catch (error) {
             console.error('Error parsing data:', error)
             setError('Error parsing data from ESP32')
@@ -56,5 +84,10 @@ export const useESP32Data = () => {
     }
   }, [])
 
-  return { data, isConnected, error }
+  return { 
+    data, 
+    dataHistory,
+    isConnected, 
+    error 
+  }
 } 
