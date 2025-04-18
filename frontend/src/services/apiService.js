@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || API_BASE_URL;
 
 const apiClient = axios.create({
   baseURL: API_URL,
@@ -58,6 +59,36 @@ export const waterQualityService = {
     } catch (error) {
       console.error('Error saving data:', error);
       throw error;
+    }
+  },
+  
+  // Request the server to reconnect to ESP32
+  reconnectToESP32: async () => {
+    try {
+      const response = await apiClient.post(`/reconnect-esp32`);
+      return response.data;
+    } catch (error) {
+      console.error('Error requesting ESP32 reconnection:', error);
+      throw error;
+    }
+  },
+  
+  // Get connection status to ESP32
+  getConnectionStatus: async () => {
+    try {
+      const response = await apiClient.get(`/health`);
+      return {
+        success: true,
+        isConnected: response.data.esp32Connected,
+        message: response.data.message
+      };
+    } catch (error) {
+      console.error('Error checking connection status:', error);
+      return {
+        success: false,
+        isConnected: false,
+        message: 'Could not reach server'
+      };
     }
   }
 };

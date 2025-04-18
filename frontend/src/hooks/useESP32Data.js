@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { waterQualityService } from '../services/apiService';
-
-const ESP32_IP = '192.168.4.1' // Default IP when ESP32 is in AP mode
-const MAX_HISTORY_POINTS = 300 // Store 5 minutes of data at 1 second intervals
+import { API_BASE_URL } from '../config';
 
 export const useESP32Data = () => {
   const [data, setData] = useState({
@@ -22,11 +20,9 @@ export const useESP32Data = () => {
   const [shouldSaveToDb, setShouldSaveToDb] = useState(true) // Option to toggle DB saving
   const [savingInterval, setSavingInterval] = useState(5000) // Save every 5 seconds by default
   
-  // Use ref to keep track of the event source and timers
+  // Use ref to keep track of event source and timers
   const eventSourceRef = useRef(null);
   const saveTimerRef = useRef(null);
-  const connectionTimerRef = useRef(null);
-  const heartbeatTimerRef = useRef(null);
   const lastSavedDataRef = useRef(null);
 
   // Load historical data from backend on initial load
@@ -40,7 +36,7 @@ export const useESP32Data = () => {
         const response = await waterQualityService.getHistoricalData({
           startDate,
           endDate,
-          limit: MAX_HISTORY_POINTS
+          limit: 300 // MAX_HISTORY_POINTS
         });
         
         if (response.success && response.data.length > 0) {
@@ -99,68 +95,60 @@ export const useESP32Data = () => {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    
-    if (heartbeatTimerRef.current) {
-      clearInterval(heartbeatTimerRef.current);
-      heartbeatTimerRef.current = null;
-    }
-    
-    if (connectionTimerRef.current) {
-      clearTimeout(connectionTimerRef.current);
-      connectionTimerRef.current = null;
-    }
   }, []);
 
-  // Connect to ESP32 via SSE
-  const connectToESP32 = useCallback(() => {
+  // Connect to server via SSE
+  const connectToServer = useCallback(() => {
     // Close any existing connection first
     closeConnection();
     
-    setError('Connecting to ESP32...');
-    console.log('Initializing new connection to ESP32');
+    setError('Connecting to server...');
+    console.log('Initializing server SSE connection');
     
     try {
-      // Create a new EventSource
-      const es = new EventSource(`http://${ESP32_IP}/events`);
+      // Connect to our Node.js server endpoint instead of ESP32 directly
+      const es = new EventSource(`${API_BASE_URL}/live-data`);
       eventSourceRef.current = es;
       
       es.onopen = () => {
-        console.log('SSE connection opened successfully');
-        setIsConnected(true);
-        setError(null);
-        
-        // Start the heartbeat timer once we're connected
-        if (heartbeatTimerRef.current) {
-          clearInterval(heartbeatTimerRef.current);
-        }
-        
-        heartbeatTimerRef.current = setInterval(() => {
-          if (eventSourceRef.current) {
-            const now = Date.now();
-            const lastMessageTimestamp = eventSourceRef.current.lastMessageTime || 0;
-            
-            // Check if we've received any message in the last 10 seconds
-            if (now - lastMessageTimestamp > 10000 && lastMessageTimestamp !== 0) {
-              console.warn('Connection appears stalled - no messages for 10 seconds');
-              setError('Connection stalled. Click reconnect to try again.');
-              setIsConnected(false);
-              
-              // Close the stalled connection
-              closeConnection();
-            }
-          }
-        }, 5000);
+        console.log('SSE connection to server opened');
+        // We'll set isConnected when we receive a connection_status event
       };
       
       es.onmessage = (event) => {
         try {
-          const newData = JSON.parse(event.data);
+          const eventData = JSON.parse(event.data);
           const timestamp = new Date();
           
-          // Track the last message received time
-          eventSourceRef.current.lastMessageTime = Date.now();
+          // Handle connection status updates
+          if (eventData.type === 'connection_status') {
+            setIsConnected(eventData.isConnected);
+            if (!eventData.isConnected && eventData.error) {
+              setError(eventData.error);
+            } else if (eventData.isConnected) {
+              setError(null);
+            }
+            return;
+          }
           
-          // Update current data
+          // Handle initial data (when first connecting)
+          if (eventData.type === 'initial') {
+            setIsConnected(eventData.isConnected);
+            if (!eventData.isConnected) {
+              setError('Server is not connected to ESP32');
+            } else {
+              setError(null);
+            }
+          }
+          
+          // Update current data with sensor readings
+          const newData = {
+            temperature: eventData.temperature || 0,
+            pH: eventData.pH || 0,
+            turbidity: eventData.turbidity || 0,
+            waterLevel: eventData.waterLevel || 0
+          };
+          
           setData(newData);
 
           // Update history
@@ -172,12 +160,12 @@ export const useESP32Data = () => {
               waterLevel: [...prev.waterLevel, { timestamp, value: newData.waterLevel }]
             };
             
-            // Keep only the last MAX_HISTORY_POINTS
+            // Keep only the last 300 points
             return {
-              temperature: newHistory.temperature.slice(-MAX_HISTORY_POINTS),
-              pH: newHistory.pH.slice(-MAX_HISTORY_POINTS),
-              turbidity: newHistory.turbidity.slice(-MAX_HISTORY_POINTS),
-              waterLevel: newHistory.waterLevel.slice(-MAX_HISTORY_POINTS)
+              temperature: newHistory.temperature.slice(-300),
+              pH: newHistory.pH.slice(-300),
+              turbidity: newHistory.turbidity.slice(-300),
+              waterLevel: newHistory.waterLevel.slice(-300)
             };
           });
         } catch (error) {
@@ -186,9 +174,9 @@ export const useESP32Data = () => {
       };
       
       es.onerror = (error) => {
-        console.error('SSE Error:', error);
+        console.error('Server SSE Error:', error);
         setIsConnected(false);
-        setError('Connection lost. Click reconnect to try again.');
+        setError('Connection to server lost. Click reconnect to try again.');
         
         // Close connection on error
         closeConnection();
@@ -196,11 +184,11 @@ export const useESP32Data = () => {
     } catch (error) {
       console.error('Error creating EventSource:', error);
       setIsConnected(false);
-      setError(`Failed to connect: ${error.message}. Click reconnect to try again.`);
+      setError(`Failed to connect to server: ${error.message}. Click reconnect to try again.`);
     }
   }, [closeConnection]);
 
-  // Save data to database effect
+  // Save data to database effect (we can disable this since the server now handles it)
   useEffect(() => {
     if (shouldSaveToDb && isConnected) {
       if (!saveTimerRef.current) {
@@ -254,8 +242,8 @@ export const useESP32Data = () => {
   
   // Initial connection effect - only runs once on component mount
   useEffect(() => {
-    console.log('Initializing ESP32 connection');
-    connectToESP32();
+    console.log('Initializing connection to server');
+    connectToServer();
     
     // Cleanup function
     return () => {
@@ -266,7 +254,7 @@ export const useESP32Data = () => {
         saveTimerRef.current = null;
       }
     };
-  }, [connectToESP32, closeConnection]);
+  }, [connectToServer, closeConnection]);
   
   // Function to toggle database saving
   const toggleDatabaseSaving = (enabled, interval = 5000) => {
@@ -276,11 +264,21 @@ export const useESP32Data = () => {
     }
   };
 
-  // Manual reconnect function - actually forces a new connection
-  const reconnect = useCallback(() => {
+  // Manual reconnect function - uses the server endpoint to reconnect
+  const reconnect = useCallback(async () => {
     console.log('Manual reconnection requested');
-    connectToESP32();
-  }, [connectToESP32]);
+    
+    try {
+      // First tell the server to reconnect to ESP32
+      await waterQualityService.reconnectToESP32();
+      
+      // Then reconnect to the server's SSE endpoint
+      connectToServer();
+    } catch (error) {
+      console.error('Error requesting reconnection:', error);
+      setError('Failed to request reconnection. Please try again.');
+    }
+  }, [connectToServer]);
 
   return { 
     data, 
