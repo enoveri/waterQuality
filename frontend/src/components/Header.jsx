@@ -1,10 +1,11 @@
-import { Download, Wifi, WifiOff } from 'lucide-react'
+import { Download, Wifi, WifiOff, RefreshCw } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { useContext } from 'react'
 import { ThemeContext } from '../App'
 
-export function Header({ isConnected, error }) {
+export function Header({ isConnected, error, reconnect }) {
   const location = useLocation()
+  // eslint-disable-next-line no-unused-vars
   const { theme } = useContext(ThemeContext)
   const isSettingsPage = location.pathname === '/settings'
 
@@ -35,6 +36,17 @@ export function Header({ isConnected, error }) {
               </>
             )}
           </div>
+          
+          {!isConnected && reconnect && (
+            <button 
+              onClick={reconnect}
+              className="p-1.5 sm:p-2 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900 dark:hover:bg-blue-800 text-blue-600 dark:text-blue-300 rounded-full transition-colors duration-200 flex-shrink-0"
+              title="Reconnect to ESP32"
+            >
+              <RefreshCw size={16} className="sm:w-[18px] sm:h-[18px]" />
+            </button>
+          )}
+          
           <button className="p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-gray-700 rounded-full transition-colors duration-200 flex-shrink-0">
             <Download size={16} className="text-slate-600 dark:text-slate-300 sm:w-[18px] sm:h-[18px]" />
           </button>

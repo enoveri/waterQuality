@@ -1065,7 +1065,7 @@ function App() {
     localStorage.setItem('notifications', JSON.stringify(notifications))
   }, [notifications])
 
-  const { data, dataHistory, isConnected, error } = useESP32Data()
+  const { data, dataHistory, isConnected, error, reconnect } = useESP32Data()
 
   // Helper function to determine status based on values
   const getStatus = (value, type) => {
@@ -1121,7 +1121,7 @@ function App() {
                style={{ backgroundColor: theme.mode === 'dark' ? 'rgb(17, 24, 39)' : 'rgb(248, 250, 252)', color: theme.mode === 'dark' ? 'white' : 'rgb(17, 24, 39)' }}>
             <Sidebar />
             <div className="flex flex-col ml-0 md:ml-20 w-full md:w-[calc(100%-5rem)]">
-              <Header isConnected={isConnected} error={error} />
+              <Header isConnected={isConnected} error={error} reconnect={reconnect} />
               
               <main className="pt-16 p-2 sm:p-3 md:p-5 max-w-full">
                 <div className="container mx-auto px-0 sm:px-2">

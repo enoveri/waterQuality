@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { waterQualityService } from '../services/apiService';
 
 const ESP32_IP = '192.168.4.1' // Default IP when ESP32 is in AP mode
@@ -21,6 +21,13 @@ export const useESP32Data = () => {
   const [error, setError] = useState(null)
   const [shouldSaveToDb, setShouldSaveToDb] = useState(true) // Option to toggle DB saving
   const [savingInterval, setSavingInterval] = useState(5000) // Save every 5 seconds by default
+  
+  // Use ref to keep track of the event source and timers
+  const eventSourceRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const connectionTimerRef = useRef(null);
+  const heartbeatTimerRef = useRef(null);
+  const lastSavedDataRef = useRef(null);
 
   // Load historical data from backend on initial load
   useEffect(() => {
@@ -85,128 +92,181 @@ export const useESP32Data = () => {
     loadHistoricalData();
   }, []);
 
+  // Function to close current connection
+  const closeConnection = useCallback(() => {
+    if (eventSourceRef.current) {
+      console.log('Closing existing EventSource connection');
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+    
+    if (connectionTimerRef.current) {
+      clearTimeout(connectionTimerRef.current);
+      connectionTimerRef.current = null;
+    }
+  }, []);
+
   // Connect to ESP32 via SSE
-  useEffect(() => {
-    let eventSource = null;
-    let saveTimer = null;
-    let lastSavedData = null;
-
-    const connectToESP32 = () => {
-      try {
-        eventSource = new EventSource(`http://${ESP32_IP}/events`);
+  const connectToESP32 = useCallback(() => {
+    // Close any existing connection first
+    closeConnection();
+    
+    setError('Connecting to ESP32...');
+    console.log('Initializing new connection to ESP32');
+    
+    try {
+      // Create a new EventSource
+      const es = new EventSource(`http://${ESP32_IP}/events`);
+      eventSourceRef.current = es;
+      
+      es.onopen = () => {
+        console.log('SSE connection opened successfully');
+        setIsConnected(true);
+        setError(null);
         
-        eventSource.onopen = () => {
-          setIsConnected(true);
-          setError(null);
-        };
-
-        eventSource.onmessage = (event) => {
-          try {
-            const newData = JSON.parse(event.data);
-            const timestamp = new Date();
-
-            // Update current data
-            setData(newData);
-
-            // Update history
-            setDataHistory(prev => {
-              const newHistory = {
-                temperature: [...prev.temperature, { timestamp, value: newData.temperature }],
-                pH: [...prev.pH, { timestamp, value: newData.pH }],
-                turbidity: [...prev.turbidity, { timestamp, value: newData.turbidity }],
-                waterLevel: [...prev.waterLevel, { timestamp, value: newData.waterLevel }]
-              };
-
-              // Keep only the last MAX_HISTORY_POINTS
-              return {
-                temperature: newHistory.temperature.slice(-MAX_HISTORY_POINTS),
-                pH: newHistory.pH.slice(-MAX_HISTORY_POINTS),
-                turbidity: newHistory.turbidity.slice(-MAX_HISTORY_POINTS),
-                waterLevel: newHistory.waterLevel.slice(-MAX_HISTORY_POINTS)
-              };
-            });
+        // Start the heartbeat timer once we're connected
+        if (heartbeatTimerRef.current) {
+          clearInterval(heartbeatTimerRef.current);
+        }
+        
+        heartbeatTimerRef.current = setInterval(() => {
+          if (eventSourceRef.current) {
+            const now = Date.now();
+            const lastMessageTimestamp = eventSourceRef.current.lastMessageTime || 0;
             
-            // Save to DB using the last-saved comparison to avoid saving identical data
-            if (shouldSaveToDb) {
-              // Only initialize timer if it's not already running
-              if (saveTimer === null) {
-                saveTimer = setInterval(() => {
-                  const currentData = {
-                    temperature: data.temperature, 
-                    pH: data.pH, 
-                    turbidity: data.turbidity, 
-                    waterLevel: data.waterLevel,
-                    timestamp: new Date().toISOString(),
-                    deviceId: 'esp32-sample' // Using our sample device ID
-                  };
-                  
-                  // Avoid saving identical data
-                  if (lastSavedData === null || 
-                      lastSavedData.temperature !== currentData.temperature ||
-                      lastSavedData.pH !== currentData.pH ||
-                      lastSavedData.turbidity !== currentData.turbidity ||
-                      lastSavedData.waterLevel !== currentData.waterLevel) {
-                    
-                    // Save to database
-                    waterQualityService.saveData(currentData)
-                      .then(response => {
-                        if (response.success) {
-                          lastSavedData = { ...currentData };
-                          console.log('Data saved to database');
-                        } else {
-                          console.error('Error saving to database:', response.message);
-                        }
-                      })
-                      .catch(err => {
-                        console.error('Error saving to database:', err);
-                      });
-                  }
-                }, savingInterval);
-              }
-            } else if (saveTimer !== null) {
-              // Clear timer if saving is disabled
-              clearInterval(saveTimer);
-              saveTimer = null;
+            // Check if we've received any message in the last 10 seconds
+            if (now - lastMessageTimestamp > 10000 && lastMessageTimestamp !== 0) {
+              console.warn('Connection appears stalled - no messages for 10 seconds');
+              setError('Connection stalled. Click reconnect to try again.');
+              setIsConnected(false);
+              
+              // Close the stalled connection
+              closeConnection();
             }
-          } catch (error) {
-            console.error('Error parsing data:', error);
-            setError('Error parsing data from ESP32');
           }
-        };
-
-        eventSource.onerror = (error) => {
-          console.error('SSE Error:', error);
-          setIsConnected(false);
-          setError('Connection lost. Retrying...');
+        }, 5000);
+      };
+      
+      es.onmessage = (event) => {
+        try {
+          const newData = JSON.parse(event.data);
+          const timestamp = new Date();
           
-          // Close current connection and retry after a short delay
-          if (eventSource) {
-            eventSource.close();
-            setTimeout(connectToESP32, 5000); // Retry after 5 seconds
-          }
-        };
-      } catch (error) {
-        console.error('Error creating EventSource:', error);
-        setError('Failed to connect to ESP32');
+          // Track the last message received time
+          eventSourceRef.current.lastMessageTime = Date.now();
+          
+          // Update current data
+          setData(newData);
+
+          // Update history
+          setDataHistory(prev => {
+            const newHistory = {
+              temperature: [...prev.temperature, { timestamp, value: newData.temperature }],
+              pH: [...prev.pH, { timestamp, value: newData.pH }],
+              turbidity: [...prev.turbidity, { timestamp, value: newData.turbidity }],
+              waterLevel: [...prev.waterLevel, { timestamp, value: newData.waterLevel }]
+            };
+            
+            // Keep only the last MAX_HISTORY_POINTS
+            return {
+              temperature: newHistory.temperature.slice(-MAX_HISTORY_POINTS),
+              pH: newHistory.pH.slice(-MAX_HISTORY_POINTS),
+              turbidity: newHistory.turbidity.slice(-MAX_HISTORY_POINTS),
+              waterLevel: newHistory.waterLevel.slice(-MAX_HISTORY_POINTS)
+            };
+          });
+        } catch (error) {
+          console.error('Error parsing data:', error);
+        }
+      };
+      
+      es.onerror = (error) => {
+        console.error('SSE Error:', error);
         setIsConnected(false);
+        setError('Connection lost. Click reconnect to try again.');
         
-        // Retry connection after delay
-        setTimeout(connectToESP32, 5000);
+        // Close connection on error
+        closeConnection();
+      };
+    } catch (error) {
+      console.error('Error creating EventSource:', error);
+      setIsConnected(false);
+      setError(`Failed to connect: ${error.message}. Click reconnect to try again.`);
+    }
+  }, [closeConnection]);
+
+  // Save data to database effect
+  useEffect(() => {
+    if (shouldSaveToDb && isConnected) {
+      if (!saveTimerRef.current) {
+        console.log('Starting database save timer');
+        saveTimerRef.current = setInterval(() => {
+          const currentData = {
+            temperature: data.temperature, 
+            pH: data.pH, 
+            turbidity: data.turbidity, 
+            waterLevel: data.waterLevel,
+            timestamp: new Date().toISOString(),
+            deviceId: 'esp32-sample'
+          };
+          
+          // Avoid saving identical data
+          if (lastSavedDataRef.current === null || 
+              lastSavedDataRef.current.temperature !== currentData.temperature ||
+              lastSavedDataRef.current.pH !== currentData.pH ||
+              lastSavedDataRef.current.turbidity !== currentData.turbidity ||
+              lastSavedDataRef.current.waterLevel !== currentData.waterLevel) {
+            
+            // Save to database
+            waterQualityService.saveData(currentData)
+              .then(response => {
+                if (response.success) {
+                  lastSavedDataRef.current = { ...currentData };
+                  console.log('Data saved to database');
+                } else {
+                  console.error('Error saving to database:', response.message);
+                }
+              })
+              .catch(err => {
+                console.error('Error saving to database:', err);
+              });
+          }
+        }, savingInterval);
+      }
+    } else if (saveTimerRef.current) {
+      console.log('Stopping database save timer');
+      clearInterval(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    
+    return () => {
+      if (saveTimerRef.current) {
+        clearInterval(saveTimerRef.current);
+        saveTimerRef.current = null;
       }
     };
-
+  }, [shouldSaveToDb, savingInterval, data, isConnected]);
+  
+  // Initial connection effect - only runs once on component mount
+  useEffect(() => {
+    console.log('Initializing ESP32 connection');
     connectToESP32();
-
+    
     // Cleanup function
     return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
-      if (saveTimer) {
-        clearInterval(saveTimer);
+      closeConnection();
+      
+      if (saveTimerRef.current) {
+        clearInterval(saveTimerRef.current);
+        saveTimerRef.current = null;
       }
     };
-  }, [shouldSaveToDb, savingInterval, data]);
+  }, [connectToESP32, closeConnection]);
   
   // Function to toggle database saving
   const toggleDatabaseSaving = (enabled, interval = 5000) => {
@@ -216,12 +276,19 @@ export const useESP32Data = () => {
     }
   };
 
+  // Manual reconnect function - actually forces a new connection
+  const reconnect = useCallback(() => {
+    console.log('Manual reconnection requested');
+    connectToESP32();
+  }, [connectToESP32]);
+
   return { 
     data, 
     dataHistory,
     isConnected, 
     error,
     toggleDatabaseSaving, // Expose function to enable/disable DB saving
-    shouldSaveToDb // Current state of DB saving
+    shouldSaveToDb, // Current state of DB saving
+    reconnect // Manual reconnection function
   };
 }; 

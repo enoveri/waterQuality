@@ -91,7 +91,7 @@ void loop() {
     // Read from actual sensors
     readSensors();
     sendEventData();  // Send update to connected clients
-    delay(5000);  // Take readings every 5 seconds
+    delay(2000);  // Take readings every 5 seconds
   }
   
   // In demo mode, periodically update the simulated data
