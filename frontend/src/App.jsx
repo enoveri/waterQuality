@@ -66,12 +66,12 @@ function Dashboard({ data, dataHistory, error, thresholds, getStatus, getOverall
 
   return (
     <>
-      <div className="flex justify-between items-center mb-4 sm:mb-6">
-        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">Water Quality Dashboard</h1>
+      <div className="flex justify-between items-center mb-3 sm:mb-4 md:mb-6">
+        <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900 dark:text-gray-100">Water Quality Dashboard</h1>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 sm:px-4 sm:py-3 rounded mb-4 sm:mb-6 dark:bg-red-900 dark:border-red-800 dark:text-red-200">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-2 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-3 rounded mb-3 sm:mb-4 md:mb-6 text-sm dark:bg-red-900 dark:border-red-800 dark:text-red-200">
           {error}
         </div>
       )}
@@ -80,7 +80,7 @@ function Dashboard({ data, dataHistory, error, thresholds, getStatus, getOverall
       
       <SensorHealth sensors={SENSORS} />
 
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 md:gap-4 mb-3 sm:mb-4 md:mb-6">
         <MetricCard 
           title="Temperature" 
           value={formatValue(data.temperature, 'temperature')}
@@ -111,7 +111,7 @@ function Dashboard({ data, dataHistory, error, thresholds, getStatus, getOverall
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 md:gap-4 mb-3 sm:mb-4 md:mb-6">
         <MiniChart
           data={dataHistory.temperature}
           label="Temperature"
@@ -998,6 +998,15 @@ function App() {
     }
   })
   
+  // Track window size for responsive layout
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024)
+  
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+  
   // Notification settings
   const [notifications, setNotifications] = useState(() => {
     const savedNotifications = localStorage.getItem('notifications')
@@ -1111,11 +1120,11 @@ function App() {
           <div className="min-h-screen w-full overflow-x-hidden flex flex-col relative transition-colors duration-300" 
                style={{ backgroundColor: theme.mode === 'dark' ? 'rgb(17, 24, 39)' : 'rgb(248, 250, 252)', color: theme.mode === 'dark' ? 'white' : 'rgb(17, 24, 39)' }}>
             <Sidebar />
-            <div className="flex flex-col ml-16 md:ml-20 w-[calc(100%-4rem)] md:w-[calc(100%-5rem)]">
+            <div className="flex flex-col ml-0 md:ml-20 w-full md:w-[calc(100%-5rem)]">
               <Header isConnected={isConnected} error={error} />
               
-              <main className="pt-16 p-3 md:p-5 max-w-full">
-                <div className="container mx-auto">
+              <main className="pt-16 p-2 sm:p-3 md:p-5 max-w-full">
+                <div className="container mx-auto px-0 sm:px-2">
                   <Routes>
                     <Route 
                       path="/" 
@@ -1137,6 +1146,7 @@ function App() {
                         <History 
                           dataHistory={dataHistory} 
                           thresholds={thresholds}
+                          windowWidth={windowWidth}
                         />
                       } 
                     />

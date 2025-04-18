@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Line } from 'react-chartjs-2'
 import { SettingsContext, ThemeContext } from '../App'
+import { waterQualityService } from '../services/apiService'
 
 // Helper to format date for datetime inputs
 const formatDateForInput = (date) => {
@@ -32,9 +33,32 @@ const formatDate = (date, timeFormat = '24h') => {
   return new Date(date).toLocaleDateString('en-US', options)
 }
 
-export function History({ dataHistory, thresholds }) {
+export function History({ dataHistory: localDataHistory, thresholds, windowWidth: propWindowWidth }) {
   const { timeFormat, units } = useContext(SettingsContext)
   const { theme } = useContext(ThemeContext)
+  
+  // State for loading database data
+  const [isLoading, setIsLoading] = useState(false);
+  const [dbDataHistory, setDbDataHistory] = useState(null);
+  const [useDbData, setUseDbData] = useState(true);
+  
+  // Combine local data history with database data if available
+  const dataHistory = useDbData && dbDataHistory ? dbDataHistory : localDataHistory;
+
+  // Fallback to local state if prop is not provided
+  const [localWindowWidth, setLocalWindowWidth] = useState(window.innerWidth)
+  
+  // Use prop value if available, otherwise use local state
+  const windowWidth = propWindowWidth || localWindowWidth
+  
+  // Track window size for responsiveness (only if no prop is provided)
+  useEffect(() => {
+    if (propWindowWidth) return; // Skip if prop is provided
+    
+    const handleResize = () => setLocalWindowWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [propWindowWidth])
   
   // Date range state
   const [startDate, setStartDate] = useState(() => {
@@ -215,10 +239,11 @@ export function History({ dataHistory, thresholds }) {
     }
   }, [dataHistory, startDate, endDate])
   
+  // Update chart options for better mobile view
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: true,
-    aspectRatio: 2.5,
+    aspectRatio: windowWidth < 640 ? 1.5 : 2.5, // More square aspect for mobile
     interaction: {
       mode: 'index',
       intersect: false,
@@ -228,11 +253,11 @@ export function History({ dataHistory, thresholds }) {
         position: 'top',
         align: 'start',
         labels: {
-          boxWidth: 12,
-          padding: 6,
+          boxWidth: windowWidth < 640 ? 8 : 12,
+          padding: 4,
           usePointStyle: true,
           font: {
-            size: 11
+            size: windowWidth < 640 ? 9 : 11
           }
         }
       },
@@ -265,10 +290,16 @@ export function History({ dataHistory, thresholds }) {
           }
         },
         title: {
-          display: true,
+          display: windowWidth >= 640, // Hide title on small screens
           text: 'Date',
           font: {
             size: 12
+          }
+        },
+        ticks: {
+          maxTicksLimit: windowWidth < 640 ? 5 : 8,
+          font: {
+            size: windowWidth < 640 ? 8 : 10
           }
         }
       },
@@ -277,10 +308,16 @@ export function History({ dataHistory, thresholds }) {
         display: true,
         position: 'left',
         title: {
-          display: true,
+          display: windowWidth >= 640, // Hide title on small screens
           text: 'Value',
           font: {
             size: 12
+          }
+        },
+        ticks: {
+          maxTicksLimit: windowWidth < 640 ? 5 : 8,
+          font: {
+            size: windowWidth < 640 ? 8 : 10
           }
         }
       },
@@ -291,10 +328,16 @@ export function History({ dataHistory, thresholds }) {
         min: 0,
         max: 14,
         title: {
-          display: true,
+          display: windowWidth >= 640, // Hide title on small screens
           text: 'pH',
           font: {
             size: 12
+          }
+        },
+        ticks: {
+          maxTicksLimit: windowWidth < 640 ? 5 : 8,
+          font: {
+            size: windowWidth < 640 ? 8 : 10
           }
         },
         grid: {
@@ -381,27 +424,78 @@ export function History({ dataHistory, thresholds }) {
     setShowExportOptions(false)
   }
   
+  // Load historical data from database when date range changes
+  useEffect(() => {
+    // Only attempt to load if useDbData is true
+    if (!useDbData) return;
+    
+    const loadHistoricalData = async () => {
+      setIsLoading(true);
+      try {
+        // Parse date strings to ensure correct format
+        const startDateObj = new Date(startDate);
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999); // End of the day
+        
+        const response = await waterQualityService.getHistoricalData({
+          startDate: startDateObj.toISOString(),
+          endDate: endDateObj.toISOString(),
+          limit: 5000 // Higher limit for historical view
+        });
+        
+        if (response.success && response.data.length > 0) {
+          // Format data for the application
+          const formattedData = {
+            temperature: [],
+            pH: [],
+            turbidity: [],
+            waterLevel: []
+          };
+          
+          response.data.forEach(item => {
+            formattedData.temperature.push({ timestamp: new Date(item.timestamp), value: item.temperature });
+            formattedData.pH.push({ timestamp: new Date(item.timestamp), value: item.pH });
+            formattedData.turbidity.push({ timestamp: new Date(item.timestamp), value: item.turbidity });
+            formattedData.waterLevel.push({ timestamp: new Date(item.timestamp), value: item.waterLevel });
+          });
+          
+          setDbDataHistory(formattedData);
+        } else {
+          // If no data found, clear previous data
+          setDbDataHistory(null);
+        }
+      } catch (error) {
+        console.error('Error loading historical data:', error);
+        // If error, fall back to local data
+        setUseDbData(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadHistoricalData();
+  }, [startDate, endDate, useDbData]);
+  
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-          <Clock className="h-6 w-6" />
+        <h1 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-1 sm:gap-2">
+          <Clock className="h-5 w-5 sm:h-6 sm:w-6" />
           Historical Data
         </h1>
         
-        {/* Export Button */}
+        {/* Export Button - Simplified for mobile */}
         <div className="relative">
           <button 
             onClick={() => setShowExportOptions(!showExportOptions)}
-            className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800 rounded-lg flex items-center gap-1 transition-colors"
+            className="px-2 sm:px-3 py-1 sm:py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800 rounded-lg flex items-center gap-1 transition-colors text-sm"
           >
-            <Download size={16} />
+            <Download size={windowWidth < 640 ? 14 : 16} />
             <span className="hidden sm:inline">Export</span>
-            <ChevronDown className="h-4 w-4" />
           </button>
           
           {showExportOptions && (
-            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-10">
+            <div className="absolute right-0 mt-1 w-40 sm:w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-10">
               <div className="p-2">
                 <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Export Format</div>
                 <div className="space-y-1">
@@ -441,65 +535,93 @@ export function History({ dataHistory, thresholds }) {
         </div>
       </div>
       
-      {/* Date Range Selector */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors duration-300">
-        <h2 className="text-lg font-medium mb-4 dark:text-white flex items-center gap-2">
-          <Calendar className="h-5 w-5" />
-          Date Range
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Date Range Selector - More compact for mobile */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-3 sm:p-4 transition-colors duration-300">
+        <div className="flex justify-between items-center mb-3 sm:mb-4">
+          <h2 className="text-base sm:text-lg font-medium dark:text-white flex items-center gap-1 sm:gap-2">
+            <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
+            Date Range
+          </h2>
+          
+          {/* Add a toggle for data source */}
+          <div className="flex items-center">
+            <label className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">
+              <input
+                type="checkbox"
+                checked={useDbData}
+                onChange={() => setUseDbData(!useDbData)}
+                className="mr-1.5 text-blue-600"
+              />
+              Use Database
+            </label>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-2 sm:gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Start Date
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Start
             </label>
             <input 
               type="date" 
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+              className="w-full p-1.5 sm:p-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              End Date
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              End
             </label>
             <input 
               type="date" 
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+              className="w-full p-1.5 sm:p-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white text-sm"
             />
           </div>
         </div>
+        
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="mt-3 flex justify-center text-blue-600 dark:text-blue-400">
+            <div className="animate-pulse flex space-x-1 items-center">
+              <div className="h-2 w-2 bg-current rounded-full"></div>
+              <div className="h-2 w-2 bg-current rounded-full"></div>
+              <div className="h-2 w-2 bg-current rounded-full"></div>
+              <span className="text-xs ml-2">Loading data...</span>
+            </div>
+          </div>
+        )}
       </div>
       
-      {/* Tabs */}
+      {/* Tabs - More compact for mobile */}
       <div className="border-b border-gray-200 dark:border-gray-700">
-        <ul className="flex flex-wrap -mb-px text-sm font-medium text-center">
-          <li className="mr-2">
+        <ul className="flex flex-wrap -mb-px text-xs sm:text-sm font-medium text-center">
+          <li className="mr-1 sm:mr-2">
             <button
               onClick={() => setActiveTab('data')}
-              className={`inline-flex items-center justify-center px-4 py-2 rounded-t-lg ${
+              className={`inline-flex items-center justify-center px-3 sm:px-4 py-1.5 sm:py-2 rounded-t-lg ${
                 activeTab === 'data'
                   ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-500 dark:border-blue-500'
                   : 'hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300'
               }`}
             >
-              <FileText className="mr-2 h-4 w-4" />
-              Historical Data
+              <FileText className="mr-1 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              Data
             </button>
           </li>
-          <li className="mr-2">
+          <li className="mr-1 sm:mr-2">
             <button
               onClick={() => setActiveTab('alerts')}
-              className={`inline-flex items-center justify-center px-4 py-2 rounded-t-lg ${
+              className={`inline-flex items-center justify-center px-3 sm:px-4 py-1.5 sm:py-2 rounded-t-lg ${
                 activeTab === 'alerts'
                   ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-500 dark:border-blue-500'
                   : 'hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300'
               }`}
             >
-              <Bell className="mr-2 h-4 w-4" />
-              Alerts History
+              <Bell className="mr-1 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              Alerts
             </button>
           </li>
         </ul>
@@ -508,41 +630,36 @@ export function History({ dataHistory, thresholds }) {
       {/* Tab Content */}
       {activeTab === 'data' ? (
         // Historical Data Tab
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors duration-300">
-          <h2 className="text-lg font-medium mb-4 dark:text-white">Data Visualization</h2>
-          <div className="h-[350px] sm:h-[400px]">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-3 sm:p-4 transition-colors duration-300">
+          <h2 className="text-base sm:text-lg font-medium mb-3 sm:mb-4 dark:text-white">Data Visualization</h2>
+          <div className="h-[250px] sm:h-[350px] md:h-[400px]">
             {chartData ? (
               <Line data={chartData} options={chartOptions} />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
+              <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">
                 No data available for the selected time range
               </div>
             )}
           </div>
         </div>
       ) : (
-        // Alerts History Tab
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors duration-300">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium dark:text-white flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5" />
+        // Alerts History Tab - Keep existing implementation with minor mobile tweaks
+        <div className="space-y-3 sm:space-y-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-3 sm:p-4 transition-colors duration-300">
+            <div className="flex justify-between items-center mb-3 sm:mb-4">
+              <h2 className="text-base sm:text-lg font-medium dark:text-white flex items-center gap-1 sm:gap-2">
+                <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
                 Alerts History
               </h2>
               
-              {/* Filters */}
+              {/* Filter button */}
               <div className="relative">
                 <button 
                   onClick={() => setShowFilters(!showFilters)}
                   className="flex items-center gap-1 p-1.5 rounded-md bg-gray-100 dark:bg-gray-700 transition-colors hover:bg-gray-200 dark:hover:bg-gray-600"
                 >
-                  <Filter size={16} className="text-gray-600 dark:text-gray-300" />
-                  <span className="text-sm text-gray-600 dark:text-gray-300 hidden sm:inline">Filters</span>
-                  {showFilters ? (
-                    <ChevronUp size={16} className="text-gray-600 dark:text-gray-300" />
-                  ) : (
-                    <ChevronDown size={16} className="text-gray-600 dark:text-gray-300" />
-                  )}
+                  <Filter size={windowWidth < 640 ? 14 : 16} className="text-gray-600 dark:text-gray-300" />
+                  <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 hidden sm:inline">Filters</span>
                 </button>
                 
                 {showFilters && (
@@ -635,11 +752,11 @@ export function History({ dataHistory, thresholds }) {
             </div>
             
             {filteredAlerts.length > 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-2 sm:space-y-3">
                 {filteredAlerts.map(alert => (
                   <div
                     key={alert.id}
-                    className={`p-3 rounded-lg border ${
+                    className={`p-2 sm:p-3 rounded-lg border text-xs sm:text-sm ${
                       alert.severity === 'high' 
                         ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-300'
                         : alert.severity === 'medium'
@@ -648,16 +765,16 @@ export function History({ dataHistory, thresholds }) {
                     }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
-                      <div className="font-medium text-sm sm:text-base">{alert.message}</div>
-                      <div className="text-xs sm:text-sm opacity-75 flex-shrink-0">
+                      <div className="font-medium">{alert.message}</div>
+                      <div className="text-xs opacity-75 flex-shrink-0">
                         Threshold: {alert.threshold}
                       </div>
                     </div>
-                    <div className="flex justify-between mt-1">
-                      <div className="text-xs sm:text-sm opacity-75">
+                    <div className="flex justify-between mt-1 text-xs">
+                      <div className="opacity-75">
                         {formatDate(alert.timestamp, timeFormat)}
                       </div>
-                      <div className="text-xs sm:text-sm opacity-75">
+                      <div className="opacity-75">
                         {alert.acknowledged ? 'Acknowledged' : 'Unacknowledged'}
                       </div>
                     </div>
@@ -665,50 +782,50 @@ export function History({ dataHistory, thresholds }) {
                 ))}
               </div>
             ) : (
-              <div className="text-center p-6 text-gray-500 dark:text-gray-400">
+              <div className="text-center p-4 sm:p-6 text-gray-500 dark:text-gray-400 text-sm">
                 No alerts found for the selected time range and filters.
               </div>
             )}
           </div>
           
-          {/* Alert Statistics */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors duration-300">
-            <h2 className="text-lg font-medium mb-4 dark:text-white">Alert Statistics</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Total Alerts</h3>
-                <div className="text-2xl font-bold">{filteredAlerts.length}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  In selected time period
+          {/* Alert Statistics - Improved grid for mobile */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-3 sm:p-4 transition-colors duration-300">
+            <h2 className="text-base sm:text-lg font-medium mb-3 sm:mb-4 dark:text-white">Alert Statistics</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+              <div className="p-2 sm:p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+                <h3 className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Total Alerts</h3>
+                <div className="text-xl sm:text-2xl font-bold">{filteredAlerts.length}</div>
+                <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  In selected period
                 </div>
               </div>
               
-              <div className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">High Severity</h3>
-                <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+              <div className="p-2 sm:p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+                <h3 className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">High Severity</h3>
+                <div className="text-xl sm:text-2xl font-bold text-red-600 dark:text-red-400">
                   {filteredAlerts.filter(a => a.severity === 'high').length}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Critical issues
                 </div>
               </div>
               
-              <div className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Medium Severity</h3>
-                <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+              <div className="p-2 sm:p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+                <h3 className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Medium Severity</h3>
+                <div className="text-xl sm:text-2xl font-bold text-yellow-600 dark:text-yellow-400">
                   {filteredAlerts.filter(a => a.severity === 'medium').length}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Warning issues
                 </div>
               </div>
               
-              <div className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unacknowledged</h3>
-                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+              <div className="p-2 sm:p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+                <h3 className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unacknowledged</h3>
+                <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
                   {filteredAlerts.filter(a => !a.acknowledged).length}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Require attention
                 </div>
               </div>

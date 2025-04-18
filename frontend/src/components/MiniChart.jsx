@@ -13,7 +13,7 @@ import {
   Legend,
   Filler
 } from 'chart.js'
-import { useContext } from 'react'
+import { useContext, useState, useEffect } from 'react'
 import { SettingsContext } from '../App'
 
 // Register ChartJS components
@@ -30,6 +30,14 @@ ChartJS.register(
 
 export function MiniChart({ data, label, color, unit }) {
   const { timeFormat } = useContext(SettingsContext)
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth)
+  
+  // Track window size for responsiveness
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
   
   // Filter to last 20 entries for mini charts
   const lastItems = data?.slice(-20) || []
@@ -52,7 +60,7 @@ export function MiniChart({ data, label, color, unit }) {
   const options = {
     responsive: true,
     maintainAspectRatio: true,
-    aspectRatio: 1.75, // Increased aspect ratio for better horizontal coverage
+    aspectRatio: windowWidth < 640 ? 1.25 : 1.75, // More compact for mobile
     plugins: {
       legend: {
         display: false
@@ -60,15 +68,19 @@ export function MiniChart({ data, label, color, unit }) {
       tooltip: {
         callbacks: {
           label: function(context) {
-            let label = context.dataset.label || '';
-            if (label) {
-              label += ': ';
+            try {
+              let label = context.dataset.label || '';
+              if (label) {
+                label += ': ';
+              }
+              if (context.parsed.y !== null) {
+                label += context.parsed.y.toFixed(1);
+                if (unit) label += unit;
+              }
+              return label;
+            } catch (error) {
+              return 'Error';
             }
-            if (context.parsed.y !== null) {
-              label += context.parsed.y.toFixed(1);
-              if (unit) label += unit;
-            }
-            return label;
           },
           title: function(context) {
             try {
@@ -115,12 +127,12 @@ export function MiniChart({ data, label, color, unit }) {
             return 'rgba(0,0,0,0.7)';
           }
         },
-        padding: 6,
+        padding: 4,
         titleFont: {
-          size: 12
+          size: windowWidth < 640 ? 10 : 12
         },
         bodyFont: {
-          size: 11
+          size: windowWidth < 640 ? 9 : 11
         }
       }
     },
@@ -137,12 +149,12 @@ export function MiniChart({ data, label, color, unit }) {
     },
     elements: {
       line: {
-        borderWidth: 1.5
+        borderWidth: windowWidth < 640 ? 1 : 1.5 
       },
       point: {
         radius: 0,
         hitRadius: 10,
-        hoverRadius: 4
+        hoverRadius: windowWidth < 640 ? 3 : 4
       }
     },
     layout: {
@@ -155,18 +167,18 @@ export function MiniChart({ data, label, color, unit }) {
     : 'N/A'
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-2 transition-colors duration-300 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-1.5 sm:p-2 transition-colors duration-300 overflow-hidden">
       <div className="flex flex-col h-full">
-        <div className="flex justify-between items-start mb-1">
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">{label}</h3>
+        <div className="flex justify-between items-start mb-0 sm:mb-1">
+          <h3 className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 truncate">{label}</h3>
           <div className="flex items-center flex-shrink-0 ml-1">
-            <span className="text-lg font-semibold whitespace-nowrap">
+            <span className="text-base sm:text-lg font-semibold whitespace-nowrap">
               {typeof value === 'number' ? value.toFixed(1) : value}
             </span>
-            {unit && <span className="ml-1 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">{unit}</span>}
+            {unit && <span className="ml-0.5 sm:ml-1 text-xxs sm:text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">{unit}</span>}
           </div>
         </div>
-        <div className="flex-1 min-h-[70px] -mx-0.5 overflow-hidden">
+        <div className="flex-1 min-h-[60px] sm:min-h-[70px] -mx-0.5 overflow-hidden">
           <Line data={chartData} options={options} />
         </div>
       </div>
