@@ -1,7 +1,7 @@
 // Configuration for the frontend application
 
 // API base URL - change this based on your environment
-export const API_BASE_URL = 'http://192.168.137.1:3001/api';
+export const API_BASE_URL = 'http://localhost:3001/api';
 
 // Maximum number of data points to store in history
 export const MAX_HISTORY_POINTS = 300;

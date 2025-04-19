@@ -257,6 +257,21 @@ export const Chart = ({ data, units }) => {
     }
   };
 
+  // Add handler for y-axis reset
+  const handleResetYAxes = () => {
+    if (chartRef.current) {
+      const chart = chartRef.current;
+      
+      // Reset the auto-scaling
+      delete chart.options.scales.y.min;
+      delete chart.options.scales.y.max;
+      delete chart.options.scales.y1.min;
+      delete chart.options.scales.y1.max;
+      
+      chart.update('none');
+    }
+  };
+
   // Add a new function to update the time unit based on zoom level
   const updateTimeUnit = (windowInSeconds) => {
     if (!chartRef.current) return;
@@ -362,7 +377,7 @@ export const Chart = ({ data, units }) => {
       zoom: {
         pan: {
           enabled: true,
-          mode: 'x',
+          mode: 'xy', // Enable both horizontal and vertical panning
           onPan: handleChartPan
         },
         zoom: {
@@ -373,19 +388,20 @@ export const Chart = ({ data, units }) => {
           pinch: {
             enabled: true
           },
-          mode: 'x',
+          mode: 'xy', // Enable both horizontal and vertical zooming
           onZoom: handleChartZoom
         }
       }
     },
     scales: {
-      // Fixed scales to prevent any auto-scaling
+      // Use auto-scaling instead of fixed scales
       y: {
         type: 'linear',
         display: true,
         position: 'left',
-        min: 0,
-        max: 100,
+        // Remove fixed min/max to allow auto-scaling
+        // min: 0,
+        // max: 100,
         title: {
           display: true,
           text: 'Value',
@@ -410,8 +426,9 @@ export const Chart = ({ data, units }) => {
         type: 'linear',
         display: true,
         position: 'right',
-        min: 0,
-        max: 14,
+        // Remove fixed min/max to allow auto-scaling
+        // min: 0,
+        // max: 14,
         title: {
           display: true,
           text: 'pH',
@@ -584,6 +601,13 @@ export const Chart = ({ data, units }) => {
             title="Reset view to latest data"
           >
             <RotateCcw size={16} />
+          </button>
+          <button 
+            onClick={handleResetYAxes}
+            className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+            title="Reset Y axes scaling"
+          >
+            ↕
           </button>
           <button 
             onClick={() => setAutoScroll(!autoScroll)}
