@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useMemo } from 'react'
+import { useState, useEffect, useContext, useMemo, useRef } from 'react'
 import { 
   Calendar, 
   Clock, 
@@ -9,11 +9,268 @@ import {
   Filter, 
   ChevronDown, 
   ChevronUp, 
-  X
+  X,
+  FileIcon,
+  ZoomIn,
+  ZoomOut,
+  ArrowLeft,
+  ArrowRight,
+  RotateCcw
 } from 'lucide-react'
 import { Line } from 'react-chartjs-2'
 import { SettingsContext, ThemeContext } from '../App'
 import { waterQualityService } from '../services/apiService'
+import * as XLSX from 'xlsx'
+import { enUS } from 'date-fns/locale'
+import 'chartjs-adapter-date-fns'
+import zoomPlugin from 'chartjs-plugin-zoom'
+import {
+  Chart as ChartJS,
+  TimeScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js'
+
+// Create scrollbar plugin
+const scrollbarPlugin = {
+  id: 'chartScrollbar',
+  defaults: {
+    scrollbarWidth: 8,
+    scrollbarColor: 'rgba(128, 128, 128, 0.3)',
+    scrollbarHoverColor: 'rgba(128, 128, 128, 0.5)',
+    scrollbarBorderRadius: 4,
+  },
+  // Store state for scrollbar interaction
+  _isDragging: false,
+  _startX: 0,
+  _startScrollPosition: 0,
+  
+  // Calculate if a point is inside the scrollbar thumb
+  _isPointInThumb(chart, x, y) {
+    const { chartArea, scales } = chart;
+    const { left, right, bottom } = chartArea;
+    const { x: xScale } = scales;
+    
+    if (!xScale) return false;
+    
+    const range = xScale.max - xScale.min;
+    const total = xScale._userMax - xScale._userMin;
+    const scrollbarWidth = right - left;
+    const thumbWidth = Math.max((scrollbarWidth * (range / total)), 40);
+    const scrollPosition = ((xScale.min - xScale._userMin) / (total - range)) * (scrollbarWidth - thumbWidth);
+    
+    // Check if point is within the thumb area
+    return (
+      x >= left + scrollPosition &&
+      x <= left + scrollPosition + thumbWidth &&
+      y >= bottom + 10 &&
+      y <= bottom + 10 + this.defaults.scrollbarWidth
+    );
+  },
+  
+  // Handle mouse down on the scrollbar
+  _handleMouseDown(chart, event) {
+    const rect = event.chart.canvas.getBoundingClientRect();
+    const x = event.native.clientX - rect.left;
+    const y = event.native.clientY - rect.top;
+    
+    // Check if click is on the scrollbar thumb
+    if (this._isPointInThumb(chart, x, y)) {
+      this._isDragging = true;
+      this._startX = x;
+      
+      const { chartArea, scales } = chart;
+      const { left, right } = chartArea;
+      const { x: xScale } = scales;
+      const range = xScale.max - xScale.min;
+      const total = xScale._userMax - xScale._userMin;
+      const scrollbarWidth = right - left;
+      const thumbWidth = Math.max((scrollbarWidth * (range / total)), 40);
+      
+      // Store the initial scroll position
+      this._startScrollPosition = ((xScale.min - xScale._userMin) / (total - range)) * (scrollbarWidth - thumbWidth);
+      
+      // Change cursor to indicate dragging
+      document.body.style.cursor = 'grabbing';
+    }
+  },
+  
+  // Handle mouse move for scrollbar dragging
+  _handleMouseMove(chart, event) {
+    if (!this._isDragging) return;
+    
+    const rect = event.chart.canvas.getBoundingClientRect();
+    const x = event.native.clientX - rect.left;
+    
+    const { chartArea, scales } = chart;
+    const { left, right } = chartArea;
+    const { x: xScale } = scales;
+    
+    if (!xScale) return;
+    
+    const deltaX = x - this._startX;
+    const scrollbarWidth = right - left;
+    const range = xScale.max - xScale.min;
+    const total = xScale._userMax - xScale._userMin;
+    const thumbWidth = Math.max((scrollbarWidth * (range / total)), 40);
+    
+    // Calculate new scroll position
+    let newScrollPosition = this._startScrollPosition + deltaX;
+    newScrollPosition = Math.max(0, Math.min(newScrollPosition, scrollbarWidth - thumbWidth));
+    
+    // Calculate new min/max values for the chart
+    const scrollPercentage = newScrollPosition / (scrollbarWidth - thumbWidth);
+    const newMin = xScale._userMin + scrollPercentage * (total - range);
+    const newMax = newMin + range;
+    
+    // Update the chart view
+    chart.options.scales.x.min = newMin;
+    chart.options.scales.x.max = newMax;
+    chart.update('none');
+  },
+  
+  // Handle mouse up to end dragging
+  _handleMouseUp() {
+    if (this._isDragging) {
+      this._isDragging = false;
+      document.body.style.cursor = '';
+    }
+  },
+  
+  // Register event handlers
+  beforeInit(chart) {
+    const plugin = this;
+    
+    chart.canvas.addEventListener('mousedown', (e) => {
+      const rect = chart.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      // Check if click is on the scrollbar track but not on thumb
+      const { chartArea, scales } = chart;
+      const { left, right, bottom } = chartArea;
+      const { x: xScale } = scales;
+      
+      if (!xScale) return;
+      
+      // Check if click is on the scrollbar track
+      if (
+        x >= left && 
+        x <= right && 
+        y >= bottom + 10 && 
+        y <= bottom + 10 + plugin.defaults.scrollbarWidth &&
+        !plugin._isPointInThumb(chart, x, y)
+      ) {
+        // Calculate the position to jump to
+        const scrollbarWidth = right - left;
+        const range = xScale.max - xScale.min;
+        const total = xScale._userMax - xScale._userMin;
+        const thumbWidth = Math.max((scrollbarWidth * (range / total)), 40);
+        
+        // Calculate where in the track the user clicked
+        const clickPosition = x - left;
+        const scrollPercentage = clickPosition / scrollbarWidth;
+        
+        // Calculate new min/max values for the chart
+        const newMin = xScale._userMin + scrollPercentage * (total - range/2);
+        const newMax = newMin + range;
+        
+        // Update the chart view
+        chart.options.scales.x.min = Math.max(xScale._userMin, Math.min(newMin, xScale._userMax - range));
+        chart.options.scales.x.max = Math.min(xScale._userMax, Math.max(newMax, xScale._userMin + range));
+        chart.update('none');
+      }
+    });
+    
+    // Add global event listeners for mouse up
+    document.addEventListener('mouseup', () => plugin._handleMouseUp());
+    document.addEventListener('mouseleave', () => plugin._handleMouseUp());
+  },
+  
+  // Hook into Chart.js events
+  beforeEvent(chart, args) {
+    const event = args.event;
+    
+    if (event.type === 'mousedown') {
+      this._handleMouseDown(chart, event);
+    } else if (event.type === 'mousemove') {
+      this._handleMouseMove(chart, event);
+    }
+  },
+  
+  afterDraw(chart, args, options) {
+    const { ctx, chartArea, scales } = chart;
+    const { left, right, bottom } = chartArea;
+    const { x } = scales;
+    
+    if (!x) return;
+    
+    const range = x.max - x.min;
+    const total = x._userMax - x._userMin;
+    const scrollbarWidth = right - left;
+    const thumbWidth = Math.max((scrollbarWidth * (range / total)), 40);
+    const scrollPosition = ((x.min - x._userMin) / (total - range)) * (scrollbarWidth - thumbWidth);
+    
+    // Draw scrollbar track
+    ctx.beginPath();
+    ctx.fillStyle = options.scrollbarColor;
+    ctx.roundRect(
+      left,
+      bottom + 10,
+      scrollbarWidth,
+      options.scrollbarWidth,
+      options.scrollbarBorderRadius
+    );
+    ctx.fill();
+    
+    // Draw scrollbar thumb
+    ctx.beginPath();
+    ctx.fillStyle = this._isDragging ? options.scrollbarHoverColor : options.scrollbarColor;
+    ctx.roundRect(
+      left + scrollPosition,
+      bottom + 10,
+      thumbWidth,
+      options.scrollbarWidth,
+      options.scrollbarBorderRadius
+    );
+    ctx.fill();
+    
+    // Add visual indicator to show it's interactive
+    if (thumbWidth > 15) {
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      
+      // Draw grip lines
+      for (let i = 0; i < 3; i++) {
+        ctx.roundRect(
+          left + scrollPosition + thumbWidth/2 - 6 + (i * 6),
+          bottom + 10 + options.scrollbarWidth/2 - 1,
+          2,
+          2,
+          1
+        );
+      }
+      ctx.fill();
+    }
+  }
+};
+
+// Register components
+ChartJS.register(
+  TimeScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  zoomPlugin,
+  scrollbarPlugin
+);
 
 // Helper to format date for datetime inputs
 const formatDateForInput = (date) => {
@@ -38,27 +295,16 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
   const { theme } = useContext(ThemeContext)
   
   // State for loading database data
-  const [isLoading, setIsLoading] = useState(false);
-  const [dbDataHistory, setDbDataHistory] = useState(null);
-  const [useDbData, setUseDbData] = useState(true);
+  const [isLoading, setIsLoading] = useState(false)
+  const [dbDataHistory, setDbDataHistory] = useState(null)
+  const [useDbData, setUseDbData] = useState(true)
   
   // Combine local data history with database data if available
-  const dataHistory = useDbData && dbDataHistory ? dbDataHistory : localDataHistory;
+  const dataHistory = useDbData && dbDataHistory ? dbDataHistory : localDataHistory
 
-  // Fallback to local state if prop is not provided
+  // Window width state management
   const [localWindowWidth, setLocalWindowWidth] = useState(window.innerWidth)
-  
-  // Use prop value if available, otherwise use local state
   const windowWidth = propWindowWidth || localWindowWidth
-  
-  // Track window size for responsiveness (only if no prop is provided)
-  useEffect(() => {
-    if (propWindowWidth) return; // Skip if prop is provided
-    
-    const handleResize = () => setLocalWindowWidth(window.innerWidth)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [propWindowWidth])
   
   // Date range state
   const [startDate, setStartDate] = useState(() => {
@@ -68,15 +314,12 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
   })
   const [endDate, setEndDate] = useState(() => formatDateForInput(new Date()))
   
-  // Active tab state
+  // UI state
   const [activeTab, setActiveTab] = useState('data')
-  
-  // Alerts history state (would be fetched from API in real app)
   const [alertsHistory, setAlertsHistory] = useState([])
-  
-  // Export format state
   const [exportFormat, setExportFormat] = useState('csv')
   const [showExportOptions, setShowExportOptions] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   
   // Filter state for alerts
   const [alertFilters, setAlertFilters] = useState({
@@ -88,7 +331,15 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
     medium: true,
     low: true
   })
-  const [showFilters, setShowFilters] = useState(false)
+
+  // Track window size for responsiveness (only if no prop is provided)
+  useEffect(() => {
+    if (propWindowWidth) return // Skip if prop is provided
+    
+    const handleResize = () => setLocalWindowWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [propWindowWidth])
   
   // Generate mock alerts history data
   useEffect(() => {
@@ -239,16 +490,303 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
     }
   }, [dataHistory, startDate, endDate])
   
-  // Update chart options for better mobile view
-  const chartOptions = {
+  // Track zoom state for dynamic time unit adjustment
+  const [zoomState, setZoomState] = useState({
+    isZoomed: false,
+    scale: 1,
+    min: null,
+    max: null
+  });
+  
+  // Add state for chart view
+  const [chartViewState, setChartViewState] = useState({
+    min: null,
+    max: null
+  });
+  
+  // Chart reference to access chart instance methods
+  const chartRef = useRef(null);
+
+  // Handle chart zoom and pan events
+  const handleChartZoom = () => {
+    // This will be called when user zooms via wheel or pinch
+    if (chartRef.current) {
+      const chart = chartRef.current;
+      setZoomState({
+        isZoomed: true,
+        scale: chart.getZoomLevel ? chart.getZoomLevel() : 1,
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+      
+      setChartViewState({
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+    }
+  };
+
+  const handleChartPan = () => {
+    // This will be called when user pans the chart
+    if (chartRef.current) {
+      const chart = chartRef.current;
+      setZoomState(prev => ({
+        ...prev,
+        isZoomed: true,
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      }));
+      
+      setChartViewState({
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+    }
+  };
+
+  // Zoom and pan handlers for buttons
+  const handleZoomIn = () => {
+    if (chartRef.current && dataHistory) {
+      const chart = chartRef.current;
+      
+      // If chart hasn't been zoomed yet, create initial zoom state
+      if (!chart.scales.x.min && !chart.scales.x.max) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        // Set initial range to the full date range
+        chart.zoomScale('x', {
+          min: start.getTime(),
+          max: end.getTime()
+        }, 'none');
+      }
+      
+      // Use the chart's zoom plugin directly
+      chart.zoom(1.5); // Zoom in by 50% for more noticeable effect
+      
+      // After zooming, update our state with the new bounds
+      setZoomState({
+        isZoomed: true,
+        scale: chart.getZoomLevel ? chart.getZoomLevel() : 1.5,
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+      
+      setChartViewState({
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+    }
+  };
+  
+  const handleZoomOut = () => {
+    if (chartRef.current && dataHistory) {
+      const chart = chartRef.current;
+      
+      // If chart hasn't been zoomed yet, create initial zoom state
+      if (!chart.scales.x.min && !chart.scales.x.max) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        // Set initial range to the full date range
+        chart.zoomScale('x', {
+          min: start.getTime(),
+          max: end.getTime()
+        }, 'none');
+      }
+      
+      // Use the chart's zoom plugin directly
+      chart.zoom(0.6); // Zoom out by 40% for more noticeable effect
+      
+      // After zooming, update our state with the new bounds
+      setZoomState({
+        isZoomed: true,
+        scale: chart.getZoomLevel ? chart.getZoomLevel() : 0.6,
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+      
+      setChartViewState({
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+    }
+  };
+  
+  const handlePanLeft = () => {
+    if (chartRef.current && dataHistory) {
+      const chart = chartRef.current;
+      let xAxis = chart.scales.x;
+      
+      // If chart hasn't been zoomed yet, create initial zoom state
+      if (!xAxis.min && !xAxis.max) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        // Set initial range to the full date range
+        chart.zoomScale('x', {
+          min: start.getTime(),
+          max: end.getTime()
+        }, 'none');
+        
+        // Get updated axis after setting initial state
+        xAxis = chart.scales.x;
+      }
+      
+      // Calculate the current range
+      const min = xAxis.min;
+      const max = xAxis.max;
+      const range = max - min;
+      
+      // Pan left by 30% of the current view for more noticeable effect
+      const offset = range * 0.3;
+      
+      // Use the chart's pan method directly
+      chart.pan({ x: offset }); // Positive value pans left in Chart.js
+      
+      // After panning, update our state with the new bounds
+      setZoomState(prev => ({
+        ...prev,
+        isZoomed: true,
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      }));
+      
+      setChartViewState({
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+    }
+  };
+  
+  const handlePanRight = () => {
+    if (chartRef.current && dataHistory) {
+      const chart = chartRef.current;
+      let xAxis = chart.scales.x;
+      
+      // If chart hasn't been zoomed yet, create initial zoom state
+      if (!xAxis.min && !xAxis.max) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        // Set initial range to the full date range
+        chart.zoomScale('x', {
+          min: start.getTime(),
+          max: end.getTime()
+        }, 'none');
+        
+        // Get updated axis after setting initial state
+        xAxis = chart.scales.x;
+      }
+      
+      // Calculate the current range
+      const min = xAxis.min;
+      const max = xAxis.max;
+      const range = max - min;
+      
+      // Pan right by 30% of the current view for more noticeable effect
+      const offset = range * 0.3;
+      
+      // Use the chart's pan method directly
+      chart.pan({ x: -offset }); // Negative value pans right in Chart.js
+      
+      // After panning, update our state with the new bounds
+      setZoomState(prev => ({
+        ...prev,
+        isZoomed: true,
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      }));
+      
+      setChartViewState({
+        min: chart.scales.x.min,
+        max: chart.scales.x.max
+      });
+    }
+  };
+  
+  const handleResetZoom = () => {
+    if (chartRef.current) {
+      const chart = chartRef.current;
+      
+      // Use the zoom plugin's reset method directly
+      chart.resetZoom();
+      
+      // Reset our view state
+      setZoomState({
+        isZoomed: false,
+        scale: 1,
+        min: null,
+        max: null
+      });
+      
+      setChartViewState({
+        min: null,
+        max: null
+      });
+    }
+  };
+
+  // Update chart options for better mobile view and add zoom/pan functionality with dynamic time units
+  const chartOptions = useMemo(() => ({
+
     responsive: true,
     maintainAspectRatio: true,
-    aspectRatio: windowWidth < 640 ? 1.5 : 2.5, // More square aspect for mobile
+    aspectRatio: windowWidth < 640 ? 1.5 : 2.5,
     interaction: {
       mode: 'index',
       intersect: false,
     },
     plugins: {
+      // Add custom tooltip title formatter based on zoom level
+      tooltip: {
+        callbacks: {
+          title: (context) => {
+            if (!context.length) return '';
+            
+            const date = new Date(context[0].parsed.x);
+            const timeRange = zoomState.max && zoomState.min ? zoomState.max - zoomState.min : null;
+            
+            // Determine appropriate time format based on zoom level
+            let options = {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+              hour12: timeFormat === '12h'
+            };
+            
+            // Add more detailed time units when zoomed in
+            if (timeRange) {
+              // Less than a day - show hours, minutes, seconds
+              if (timeRange < 86400000) {
+                options.hour = 'numeric';
+                options.minute = 'numeric';
+                // Less than an hour - show seconds
+                if (timeRange < 3600000) {
+                  options.second = 'numeric';
+                  // Less than a minute - show milliseconds
+                  if (timeRange < 60000) {
+                    return date.toLocaleString('en-US', {
+                      ...options,
+                      fractionalSecondDigits: 3
+                    });
+                  }
+                }
+              }
+            } else {
+              // Default format when not zoomed
+              options.hour = 'numeric';
+              options.minute = 'numeric';
+            }
+            
+            return date.toLocaleString('en-US', options);
+          }
+        }
+      },
       legend: {
         position: 'top',
         align: 'start',
@@ -261,22 +799,102 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
           }
         }
       },
-      tooltip: {
-        callbacks: {
-          title: (context) => {
-            if (!context.length) return ''
-            const date = new Date(context[0].parsed.x)
-            const options = {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: 'numeric',
-              second: 'numeric',
-              hour12: timeFormat === '12h'
-            }
-            return date.toLocaleString('en-US', options)
+
+      chartScrollbar: {
+        scrollbarWidth: 8,
+        scrollbarColor: theme === 'dark' ? 'rgba(156, 163, 175, 0.3)' : 'rgba(107, 114, 128, 0.3)',
+        scrollbarHoverColor: theme === 'dark' ? 'rgba(156, 163, 175, 0.5)' : 'rgba(107, 114, 128, 0.5)',
+        scrollbarBorderRadius: 4,
+        // Enable interactive scrollbar
+        interactive: true
+      },
+      zoom: {
+        pan: {
+          enabled: true,
+          mode: 'x',
+          modifierKey: null,
+          overScaleMode: 'x',
+          panCursor: 'grab',
+          // Enhanced pan complete handler to update state
+          onPanComplete: function(ctx) {
+            // Update zoom state to reflect current view
+            const chart = ctx.chart;
+            const {min, max} = chart.scales.x;
+            
+            setZoomState(prev => ({
+              ...prev,
+              isZoomed: true,
+              min,
+              max
+            }));
+            
+            // Update chart view state
+            setChartViewState({
+              min,
+              max
+            });
+            
+            // Force update to sync scrollbar
+            chart.update('none'); 
+          },
+          onPan: handleChartPan,
+          // Increased pan distance for better UX
+          speed: 0.3, // 30% pan distance (increased from 25%)
+          drag: {
+            enabled: true,
+            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+            borderColor: 'rgba(75, 192, 192, 0.4)',
+            borderWidth: 1,
+            threshold: 10 // More sensitive drag detection
           }
+        },
+        zoom: {
+          wheel: {
+            enabled: true,
+            speed: 0.1,
+            modifierKey: 'ctrl'
+          },
+          pinch: {
+            enabled: true
+          },
+          mode: 'x',
+          overScaleMode: 'x',
+          // Enhanced zoom complete handler to update state
+          onZoomComplete: function(ctx) {
+            // Update zoom state to reflect current view
+            const chart = ctx.chart;
+            const {min, max} = chart.scales.x;
+            const scale = chart.getZoomLevel();
+            
+            setZoomState({
+              isZoomed: scale > 1,
+              scale,
+              min,
+              max
+            });
+            
+            // Update chart view state
+            setChartViewState({
+              min,
+              max
+            });
+            
+            // Force update to sync scrollbar
+            chart.update('none'); 
+          },
+          onZoom: handleChartZoom,
+          // Improved zoom sensitivity
+          sensitivity: 3
+        },
+        limits: {
+          x: {min: 'original', max: 'original'},
+          // Add scale limits to prevent excessive zooming
+          scale: {min: 0.1, max: 50}
+        },
+        // Add animation settings for smoother transitions
+        animations: {
+          pan: {duration: 300, easing: 'easeOutQuad'},
+          zoom: {duration: 300, easing: 'easeOutCubic'}
         }
       }
     },
@@ -284,13 +902,47 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
       x: {
         type: 'time',
         time: {
-          unit: 'day',
+          // Enhanced display formats for all time scales
           displayFormats: {
-            day: 'MMM d'
+            millisecond: 'HH:mm:ss.SSS',
+            second: 'HH:mm:ss',
+            minute: 'HH:mm',
+            hour: 'HH:mm',
+            day: 'MMM d',
+            week: 'MMM d, yyyy',
+            month: 'MMM yyyy',
+            quarter: 'MMM yyyy',
+            year: 'yyyy'
+          },
+          // Dynamically adjust time unit based on zoom level
+          unit: (() => {
+            // If not zoomed, use auto unit
+            if (!zoomState.isZoomed) return undefined;
+            
+            // Calculate time range in milliseconds
+            const timeRange = zoomState.max - zoomState.min;
+            
+            // Select appropriate time unit based on zoom level
+            if (timeRange < 1000) return 'millisecond';
+            if (timeRange < 60000) return 'second';
+            if (timeRange < 3600000) return 'minute';
+            if (timeRange < 86400000) return 'hour';
+            if (timeRange < 604800000) return 'day';
+            if (timeRange < 2592000000) return 'week';
+            if (timeRange < 31536000000) return 'month';
+            return 'year';
+          })(),
+          // Minimum display unit (for very zoomed in views)
+          minUnit: 'millisecond',
+          tooltipFormat: 'MMM d, yyyy HH:mm:ss'
+        },
+        adapters: {
+          date: {
+            locale: enUS
           }
         },
         title: {
-          display: windowWidth >= 640, // Hide title on small screens
+          display: windowWidth >= 640,
           text: 'Date',
           font: {
             size: 12
@@ -300,15 +952,24 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
           maxTicksLimit: windowWidth < 640 ? 5 : 8,
           font: {
             size: windowWidth < 640 ? 8 : 10
-          }
-        }
+          },
+          major: {
+            enabled: true
+          },
+          source: 'auto',
+          autoSkip: true,
+          autoSkipPadding: 50
+        },
+        // Apply chart view state if defined
+        min: chartViewState.min ? chartViewState.min : undefined,
+        max: chartViewState.max ? chartViewState.max : undefined
       },
       y: {
         type: 'linear',
         display: true,
         position: 'left',
         title: {
-          display: windowWidth >= 640, // Hide title on small screens
+          display: windowWidth >= 640,
           text: 'Value',
           font: {
             size: 12
@@ -328,7 +989,7 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
         min: 0,
         max: 14,
         title: {
-          display: windowWidth >= 640, // Hide title on small screens
+          display: windowWidth >= 640,
           text: 'pH',
           font: {
             size: 12
@@ -344,40 +1005,132 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
           drawOnChartArea: false,
         }
       }
+    },
+    layout: {
+      padding: {
+        bottom: 30 // Increased padding for scrollbar
+      }
+    },
+    onHover: (event, elements, chart) => {
+      const target = event.native.target;
+      if (!target) return;
+      
+      // Change cursor based on mode and interaction
+      if (event.native.ctrlKey) {
+        target.style.cursor = 'zoom-in';
+      } else {
+        target.style.cursor = elements.length ? 'pointer' : 'grab';
+      }
     }
-  }
+  }), [windowWidth, zoomState, theme, timeFormat, chartViewState]);
+  
+  // Add CSS styles for cursor changes and scrollbar interactions
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .chart-container {
+        position: relative;
+      }
+      .chart-container:active {
+        cursor: grabbing !important;
+      }
+      .chart-container.zooming {
+        cursor: zoom-in !important;
+      }
+      /* Scrollbar styles */
+      .chart-container canvas {
+        margin-bottom: 20px; /* Add space for scrollbar */
+      }
+      /* Custom cursor for scrollbar */
+      .scrollbar-grabbing {
+        cursor: grabbing !important;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  // Add chart container ref and zoom state
+  const chartContainerRef = useRef(null);
+  const [isZooming, setIsZooming] = useState(false);
+
+  // Handle keyboard events for zoom mode
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.ctrlKey && chartContainerRef.current) {
+        chartContainerRef.current.classList.add('zooming');
+        setIsZooming(true);
+      }
+    };
+    
+    const handleKeyUp = (e) => {
+      if (!e.ctrlKey && chartContainerRef.current) {
+        chartContainerRef.current.classList.remove('zooming');
+        setIsZooming(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
   
   // Handle export function
-  const handleExport = () => {
-    if (!dataHistory) return
+  const handleExport = (format) => {
+    if (!dataHistory && format !== 'alerts-report') return;
     
-    const format = exportFormat
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-    end.setHours(23, 59, 59, 999)
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    
+    // For alerts report
+    if (format === 'alerts-report') {
+      const reportData = filteredAlerts.map(alert => ({
+        timestamp: formatDate(alert.timestamp, timeFormat),
+        type: alert.type,
+        severity: alert.severity,
+        message: alert.message,
+        threshold: alert.threshold,
+        status: alert.acknowledged ? 'Acknowledged' : 'Unacknowledged'
+      }));
+      
+      // Create workbook for Excel
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(reportData);
+      XLSX.utils.book_append_sheet(wb, ws, "Alerts Report");
+      XLSX.writeFile(wb, `water-quality-alerts-${startDate}-to-${endDate}.xlsx`);
+      setShowExportOptions(false);
+      return;
+    }
     
     // Filter data by date range
     const filtered = {
       temperature: dataHistory.temperature.filter(d => {
-        const timestamp = new Date(d.timestamp)
-        return timestamp >= start && timestamp <= end
+        const timestamp = new Date(d.timestamp);
+        return timestamp >= start && timestamp <= end;
       }),
       pH: dataHistory.pH.filter(d => {
-        const timestamp = new Date(d.timestamp)
-        return timestamp >= start && timestamp <= end
+        const timestamp = new Date(d.timestamp);
+        return timestamp >= start && timestamp <= end;
       }),
       turbidity: dataHistory.turbidity.filter(d => {
-        const timestamp = new Date(d.timestamp)
-        return timestamp >= start && timestamp <= end
+        const timestamp = new Date(d.timestamp);
+        return timestamp >= start && timestamp <= end;
       }),
       waterLevel: dataHistory.waterLevel.filter(d => {
-        const timestamp = new Date(d.timestamp)
-        return timestamp >= start && timestamp <= end
+        const timestamp = new Date(d.timestamp);
+        return timestamp >= start && timestamp <= end;
       })
-    }
+    };
     
     // Create data for export
-    const exportData = []
+    const exportData = [];
     filtered.temperature.forEach((temp, i) => {
       if (filtered.pH[i] && filtered.turbidity[i] && filtered.waterLevel[i]) {
         exportData.push({
@@ -386,43 +1139,50 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
           pH: filtered.pH[i].value,
           turbidity: filtered.turbidity[i].value,
           waterLevel: filtered.waterLevel[i].value
-        })
+        });
       }
-    })
+    });
     
-    // Export as CSV
-    if (format === 'csv') {
-      const headers = ['Timestamp', 'Temperature', 'pH', 'Turbidity', 'Water Level']
+    switch (format) {
+      case 'excel':
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        XLSX.utils.book_append_sheet(wb, ws, "Water Quality Data");
+        XLSX.writeFile(wb, `water-quality-data-${startDate}-to-${endDate}.xlsx`);
+        break;
+        
+      case 'csv':
+        const headers = ['Timestamp', 'Temperature', 'pH', 'Turbidity', 'Water Level'];
       const csvContent = exportData.map(row => {
-        return `${row.timestamp},${row.temperature},${row.pH},${row.turbidity},${row.waterLevel}`
-      })
+          return `${row.timestamp},${row.temperature},${row.pH},${row.turbidity},${row.waterLevel}`;
+        });
       
       const csv = [
         headers.join(','),
         ...csvContent
-      ].join('\n')
-      
-      const blob = new Blob([csv], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `water-quality-data-${startDate}-to-${endDate}.csv`
-      link.click()
-    } 
-    // Export as JSON
-    else if (format === 'json') {
-      const jsonContent = JSON.stringify(exportData, null, 2)
-      const blob = new Blob([jsonContent], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `water-quality-data-${startDate}-to-${endDate}.json`
-      link.click()
+        ].join('\n');
+        
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `water-quality-data-${startDate}-to-${endDate}.csv`;
+        link.click();
+        break;
+        
+      case 'json':
+        const jsonContent = JSON.stringify(exportData, null, 2);
+        const jsonBlob = new Blob([jsonContent], { type: 'application/json' });
+        const jsonUrl = URL.createObjectURL(jsonBlob);
+        const jsonLink = document.createElement('a');
+        jsonLink.href = jsonUrl;
+        jsonLink.download = `water-quality-data-${startDate}-to-${endDate}.json`;
+        jsonLink.click();
+        break;
     }
     
-    // Close export options after export
-    setShowExportOptions(false)
-  }
+    setShowExportOptions(false);
+  };
   
   // Load historical data from database when date range changes
   useEffect(() => {
@@ -483,56 +1243,6 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
           <Clock className="h-5 w-5 sm:h-6 sm:w-6" />
           Historical Data
         </h1>
-        
-        {/* Export Button - Simplified for mobile */}
-        <div className="relative">
-          <button 
-            onClick={() => setShowExportOptions(!showExportOptions)}
-            className="px-2 sm:px-3 py-1 sm:py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800 rounded-lg flex items-center gap-1 transition-colors text-sm"
-          >
-            <Download size={windowWidth < 640 ? 14 : 16} />
-            <span className="hidden sm:inline">Export</span>
-          </button>
-          
-          {showExportOptions && (
-            <div className="absolute right-0 mt-1 w-40 sm:w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-10">
-              <div className="p-2">
-                <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Export Format</div>
-                <div className="space-y-1">
-                  <label className="flex items-center gap-2">
-                    <input 
-                      type="radio" 
-                      name="exportFormat" 
-                      value="csv" 
-                      checked={exportFormat === 'csv'}
-                      onChange={() => setExportFormat('csv')}
-                      className="text-blue-600"
-                    />
-                    <span className="text-sm">CSV</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input 
-                      type="radio" 
-                      name="exportFormat" 
-                      value="json" 
-                      checked={exportFormat === 'json'}
-                      onChange={() => setExportFormat('json')}
-                      className="text-blue-600"
-                    />
-                    <span className="text-sm">JSON</span>
-                  </label>
-                </div>
-                
-                <button
-                  onClick={handleExport}
-                  className="mt-3 w-full px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-                >
-                  Download
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
       
       {/* Date Range Selector - More compact for mobile */}
@@ -566,7 +1276,7 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
               type="date" 
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full p-1.5 sm:p-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white text-sm"
+              className="w-full p-1.5 sm:p-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white text-sm [color-scheme:auto]"
             />
           </div>
           <div>
@@ -631,10 +1341,112 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
       {activeTab === 'data' ? (
         // Historical Data Tab
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-3 sm:p-4 transition-colors duration-300">
-          <h2 className="text-base sm:text-lg font-medium mb-3 sm:mb-4 dark:text-white">Data Visualization</h2>
-          <div className="h-[250px] sm:h-[350px] md:h-[400px]">
+          <div className="flex justify-between items-center mb-3 sm:mb-4">
+            <h2 className="text-base sm:text-lg font-medium dark:text-white">Data Visualization</h2>
+            
+            {/* Export Button */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowExportOptions(!showExportOptions)}
+                className="px-2 sm:px-3 py-1 sm:py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800 rounded-lg flex items-center gap-1 transition-colors text-sm"
+              >
+                <Download size={windowWidth < 640 ? 14 : 16} />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+              
+              {showExportOptions && (
+                <div className="absolute right-0 mt-1 w-48 sm:w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                  <div className="p-3">
+                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Export Options</div>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => handleExport('excel')}
+                        className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors text-gray-700 dark:text-gray-300"
+                      >
+                        <FileIcon size={16} className="text-green-600 dark:text-green-400" />
+                        Excel Spreadsheet
+                      </button>
+                      <button
+                        onClick={() => handleExport('csv')}
+                        className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors text-gray-700 dark:text-gray-300"
+                      >
+                        <FileIcon size={16} className="text-blue-600 dark:text-blue-400" />
+                        CSV File
+                      </button>
+                      <button
+                        onClick={() => handleExport('json')}
+                        className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors text-gray-700 dark:text-gray-300"
+                      >
+                        <FileIcon size={16} className="text-yellow-600 dark:text-yellow-400" />
+                        JSON Data
+                      </button>
+                      <button
+                        onClick={() => handleExport('alerts-report')}
+                        className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors text-gray-700 dark:text-gray-300"
+                      >
+                        <Bell size={16} className="text-purple-600 dark:text-purple-400" />
+                        Alerts Report
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div 
+            ref={chartContainerRef}
+            className="chart-container h-[250px] sm:h-[350px] md:h-[400px]"
+          >
             {chartData ? (
-              <Line data={chartData} options={chartOptions} />
+              <>
+                {/* Add chart control buttons */}
+                <div className="flex justify-between items-center mb-2">
+                  <h2 className="text-base sm:text-lg font-medium dark:text-white">
+                    Data Visualization
+                  </h2>
+                  
+                  {/* Add zoom/pan controls */}
+                  <div className="flex space-x-1">
+                    <button 
+                      onClick={handleZoomOut}
+                      className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                      title="Zoom out"
+                    >
+                      <ZoomOut size={windowWidth < 640 ? 14 : 16} />
+                    </button>
+                    <button 
+                      onClick={handleZoomIn}
+                      className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                      title="Zoom in"
+                    >
+                      <ZoomIn size={windowWidth < 640 ? 14 : 16} />
+                    </button>
+                    <button 
+                      onClick={handlePanLeft}
+                      className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                      title="Pan left"
+                    >
+                      <ArrowLeft size={windowWidth < 640 ? 14 : 16} />
+                    </button>
+                    <button 
+                      onClick={handlePanRight}
+                      className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                      title="Pan right"
+                    >
+                      <ArrowRight size={windowWidth < 640 ? 14 : 16} />
+                    </button>
+                    <button 
+                      onClick={handleResetZoom}
+                      className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                      title="Reset view"
+                    >
+                      <RotateCcw size={windowWidth < 640 ? 14 : 16} />
+                    </button>
+                  </div>
+                </div>
+                
+                <Line data={chartData} options={chartOptions} ref={chartRef} />
+              </>
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">
                 No data available for the selected time range
@@ -643,7 +1455,7 @@ export function History({ dataHistory: localDataHistory, thresholds, windowWidth
           </div>
         </div>
       ) : (
-        // Alerts History Tab - Keep existing implementation with minor mobile tweaks
+        // Alerts History Tab
         <div className="space-y-3 sm:space-y-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-3 sm:p-4 transition-colors duration-300">
             <div className="flex justify-between items-center mb-3 sm:mb-4">

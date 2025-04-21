@@ -20,7 +20,7 @@ export function MetricCard({ title, value, icon: Icon, status, unit }) {
         <div className="min-w-0 flex-1">
           <h3 className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 mb-0.5 sm:mb-1 truncate">{title}</h3>
           <div className="flex items-center">
-            <div className="text-lg sm:text-xl md:text-2xl font-semibold truncate">{value}</div>
+            <div className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900 dark:text-gray-100 truncate">{value}</div>
             {unit && (
               <span className="ml-1 text-xxs sm:text-xs md:text-sm text-gray-500 dark:text-gray-400 flex-shrink-0">{unit}</span>
             )}
