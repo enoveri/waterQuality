@@ -39,28 +39,50 @@ ChartJS.register(
 );
 
 const SENSORS = {
-  temperature:  { label: 'Temperature (°C)',  color: 'rgb(255,99,132)',  fill: 'rgba(255,99,132,0.2)' },
-  pH:           { label: 'pH',               color: 'rgb(54,162,235)', fill: 'rgba(54,162,235,0.2)' },
-  turbidity:    { label: 'Turbidity (NTU)',  color: 'rgb(75,192,192)', fill: 'rgba(75,192,192,0.2)' },
-  waterLevel:   { label: 'Water Level (cm)', color: 'rgb(153,102,255)',fill: 'rgba(153,102,255,0.2)' },
+  temperature: {
+    label: "Temperature (°C)",
+    color: "rgb(255,99,132)",
+    fill: "rgba(255,99,132,0.2)",
+  },
+  pH: { label: "pH", color: "rgb(54,162,235)", fill: "rgba(54,162,235,0.2)" },
+  turbidity: {
+    label: "Turbidity (NTU)",
+    color: "rgb(75,192,192)",
+    fill: "rgba(75,192,192,0.2)",
+  },
+  waterLevel: {
+    label: "Water Level (cm)",
+    color: "rgb(153,102,255)",
+    fill: "rgba(153,102,255,0.2)",
+  },
 };
 
 function getSuggestedYMin(sensor) {
   switch (sensor) {
-    case 'temperature': return 0;
-    case 'pH':          return 6;
-    case 'turbidity':   return 0;
-    case 'waterLevel':  return 0;
-    default:            return 0;
+    case "temperature":
+      return 0;
+    case "pH":
+      return 6;
+    case "turbidity":
+      return 0;
+    case "waterLevel":
+      return 0;
+    default:
+      return 0;
   }
 }
 function getSuggestedYMax(sensor) {
   switch (sensor) {
-    case 'temperature': return 50;
-    case 'pH':          return 8;
-    case 'turbidity':   return 100;
-    case 'waterLevel':  return 200;
-    default:            return 100;
+    case "temperature":
+      return 50;
+    case "pH":
+      return 8;
+    case "turbidity":
+      return 100;
+    case "waterLevel":
+      return 200;
+    default:
+      return 100;
   }
 }
 
@@ -71,14 +93,14 @@ const LIVE_WINDOW_MS = 60000;
 
 export const Chart = ({ data }) => {
   const chartRef = useRef(null);
-  const [activeSensor, setActiveSensor] = useState('temperature');
-  const [autoScroll, setAutoScroll]     = useState(true);
-  const [dataHistory, setDataHistory]   = useState({
+  const [activeSensor, setActiveSensor] = useState("temperature");
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [dataHistory, setDataHistory] = useState({
     timestamps: [],
     temperature: [],
     pH: [],
     turbidity: [],
-    waterLevel: []
+    waterLevel: [],
   });
   const [selectedPoint, setSelectedPoint] = useState(null);
 
@@ -100,36 +122,33 @@ export const Chart = ({ data }) => {
   }, [data]);
 
   // 2) Dynamic Y bounds
-   const { yMin, yMax } = useMemo(() => {
-     const vals = dataHistory[activeSensor];
-     if (!vals.length) {
-       return {
-         yMin: getSuggestedYMin(activeSensor),
-         yMax: getSuggestedYMax(activeSensor),
-       };
-     }
-     const min = Math.min(...vals),
-           max = Math.max(...vals);
-
+  const { yMin, yMax } = useMemo(() => {
+    const vals = dataHistory[activeSensor];
+    if (!vals.length) {
+      return {
+        yMin: getSuggestedYMin(activeSensor),
+        yMax: getSuggestedYMax(activeSensor),
+      };
+    }
+    const min = Math.min(...vals),
+      max = Math.max(...vals);
 
     // Flat line → draw from zero (or baseline) up to that constant
     if (min === max) {
       return { yMin: 0, yMax: max };
     }
 
-     // Otherwise apply 10% padding around observed min/max
-     const pad = (max - min) * 0.1;
-     return {
-       yMin: min - pad,
-       yMax: max + pad,
-     };
-   }, [dataHistory, activeSensor]);
-
-
+    // Otherwise apply 10% padding around observed min/max
+    const pad = (max - min) * 0.1;
+    return {
+      yMin: min - pad,
+      yMax: max + pad,
+    };
+  }, [dataHistory, activeSensor]);
 
   // 3) Memoize data payload
-  const chartData = useMemo(
-    () => ({
+  const chartData = useMemo(() => {
+    const chartDataConfig = {
       datasets: [
         {
           label: SENSORS[activeSensor].label,
@@ -145,9 +164,16 @@ export const Chart = ({ data }) => {
           pointHoverRadius: 3,
         },
       ],
-    }),
-    [dataHistory, activeSensor]
-  );
+    };
+
+    // Log the selected chart data
+    console.log(
+      `Chart rendering for ${SENSORS[activeSensor].label}:`,
+      chartData
+    );
+
+    return chartDataConfig;
+  }, [dataHistory, activeSensor]);
 
   // 4) Memoize options with full displayFormats
   const options = useMemo(
