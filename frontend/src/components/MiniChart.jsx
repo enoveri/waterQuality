@@ -42,10 +42,60 @@ export function MiniChart({ data, label, color, unit, metric, metrics }) {
   // Filter to last 20 entries for mini charts
   const lastItems = data?.slice(-20) || [];
 
-  // Prepare chart data based on the selected metric
+  // Format time helper function
+  const formatTime = (timestamp) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const options = {
+      hour: "numeric",
+      minute: "numeric",
+      hour12: timeFormat === "12h",
+    };
+    return new Intl.DateTimeFormat("en-US", options).format(date);
+  };
+
+  // Prepare chart data based on the selected metric or use default values
   const chartData = useMemo(() => {
+    // Handle the case when metrics prop is not provided (legacy mode)
+    if (!metrics) {
+      // Create a simple dataset using the provided color and label
+      return {
+        labels: Array(lastItems.length).fill(""),
+        datasets: [
+          {
+            label: label || "Value",
+            data: lastItems,
+            borderColor: color || "rgb(75, 192, 192)",
+            backgroundColor: `${color || "rgb(75, 192, 192)"}20`,
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.3,
+            fill: true,
+          },
+        ],
+      };
+    }
+
+    // Modern mode with metrics prop
     const selectedMetric = metrics.find((m) => m.id === metric);
-    if (!selectedMetric || !data || data.length === 0) return null;
+    if (!selectedMetric || !data || data.length === 0) {
+      // Return empty chart data if no valid metric or data
+      return {
+        labels: [],
+        datasets: [
+          {
+            label: label || "No Data",
+            data: [],
+            borderColor: color || "rgb(200, 200, 200)",
+            backgroundColor: `${color || "rgb(200, 200, 200)"}20`,
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: true,
+          },
+        ],
+      };
+    }
 
     // Log data being displayed in mini chart
     console.log(`MiniChart rendering for ${selectedMetric.label}:`, data);
@@ -66,7 +116,7 @@ export function MiniChart({ data, label, color, unit, metric, metrics }) {
         },
       ],
     };
-  }, [data, metric, metrics, timeFormat]);
+  }, [data, metric, metrics, timeFormat, label, color, lastItems]);
 
   const options = {
     responsive: true,
@@ -95,6 +145,11 @@ export function MiniChart({ data, label, color, unit, metric, metrics }) {
           },
           title: function (context) {
             try {
+              // Check if we're in legacy mode (direct array of values)
+              if (!metrics && typeof lastItems[context[0].dataIndex] === 'number') {
+                return ""; // No timestamp available in legacy mode
+              }
+
               if (!lastItems[context[0].dataIndex]?.timestamp) {
                 return "";
               }
@@ -121,6 +176,11 @@ export function MiniChart({ data, label, color, unit, metric, metrics }) {
           // Add millisecond precision for detailed view
           afterTitle: function (context) {
             try {
+              // Check if we're in legacy mode
+              if (!metrics && typeof lastItems[context[0].dataIndex] === 'number') {
+                return ""; // No timestamp in legacy mode
+              }
+
               if (!lastItems[context[0].dataIndex]?.timestamp) {
                 return "";
               }
@@ -182,8 +242,19 @@ export function MiniChart({ data, label, color, unit, metric, metrics }) {
     },
   };
 
-  const value =
-    lastItems.length > 0 ? lastItems[lastItems.length - 1].value : "N/A";
+  // Get current value based on data format
+  const value = useMemo(() => {
+    if (!lastItems || lastItems.length === 0) return "N/A";
+    
+    // Handle legacy mode (direct array of values)
+    if (!metrics) {
+      const lastValue = lastItems[lastItems.length - 1];
+      return typeof lastValue === 'number' ? lastValue : "N/A";
+    }
+    
+    // Modern mode with timestamp/value objects
+    return lastItems[lastItems.length - 1]?.value ?? "N/A";
+  }, [lastItems, metrics]);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-1.5 sm:p-2 transition-colors duration-300 overflow-hidden">
