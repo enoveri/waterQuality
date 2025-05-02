@@ -4,8 +4,8 @@
 const getApiBaseUrl = () => {
   // For production builds on Vercel
   if (import.meta.env.PROD) {
-    // Return relative URL which will be handled by Vercel rewrites
-    return '/api';
+    // Return the Render backend URL
+    return 'https://waterquality-uba1.onrender.com/api';
   }
   // For local development
   return 'http://localhost:3001/api';

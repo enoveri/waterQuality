@@ -12,12 +12,10 @@ services:
       - key: PORT
         value: 10000
       - key: DB_PATH
-        value: /data/database.sqlite
+        value: database/database.sqlite
       - key: USE_FALLBACK
         value: "true"
       - key: LOG_LEVEL
         value: info
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 1
+      - key: INIT_DB_ON_START
+        value: "true"

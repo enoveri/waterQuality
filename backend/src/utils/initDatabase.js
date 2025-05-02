@@ -333,4 +333,16 @@ const initializeDatabase = async () => {
   }
 };
 
-initializeDatabase();
+// If this is run directly (not imported), run the initialization
+if (require.main === module) {
+  initializeDatabase();
+}
+
+// Export functions so they can be used individually
+module.exports = {
+  setupDevice,
+  setupThresholds,
+  generateSampleData,
+  generateSampleAlerts,
+  initializeDatabase
+};

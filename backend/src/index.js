@@ -347,16 +347,34 @@ const corsOptions = {
     
     // In production, only allow specific origins
     const allowedOrigins = [
-      'https://water-quality-frontend.vercel.app', // Your Vercel domain
-      'https://your-custom-domain.com'            // Any custom domain you might use
+      'https://water-quality-frontend.vercel.app',  // Default Vercel domain
+      'https://water-quality-monitor.vercel.app',   // Another possible Vercel domain
+      'https://waterquality.vercel.app',            // Shorter variant
+      'https://water-quality-monitor-app.vercel.app', // With app suffix
+      'https://waterqualitymonitor.vercel.app',     // No dashes variant
+      'https://waterquality-frontend.vercel.app',   // Another variant
+      '.vercel.app'                                 // Allow any Vercel subdomain
     ];
     
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+    if (!origin) {
       callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+      return;
     }
+    
+    // Check if the origin exactly matches one of our allowed origins
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+      return;
+    }
+    
+    // Check if origin ends with .vercel.app
+    if (origin.endsWith('.vercel.app')) {
+      callback(null, true);
+      return;
+    }
+    
+    callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
@@ -520,6 +538,39 @@ const startServer = async () => {
       console.log('Syncing database models...');
       await syncDatabase();
       console.log('Database models synced successfully');
+      
+      // Initialize the database with sample data if running on free tier
+      if (process.env.INIT_DB_ON_START === 'true') {
+        console.log('Initializing database with sample data...');
+        try {
+          // Check if we have any existing data
+          const WaterQualityData = require('./models/WaterQualityData');
+          const count = await WaterQualityData.count();
+          
+          if (count === 0) {
+            console.log('No data found in database, creating sample data...');
+            // Import initialization function directly
+            const { 
+              setupDevice, 
+              setupThresholds, 
+              generateSampleData, 
+              generateSampleAlerts 
+            } = require('./utils/initDatabase');
+            
+            // Initialize with minimal data for free tier
+            await setupDevice();
+            await setupThresholds();
+            await generateSampleData(2, 6); // Just 2 days with 6 readings per day
+            await generateSampleAlerts(10); // Only 10 sample alerts
+            console.log('Sample data created successfully');
+          } else {
+            console.log(`Database already contains ${count} records, skipping initialization`);
+          }
+        } catch (error) {
+          console.error('Error initializing database with sample data:', error);
+          // Continue anyway, not critical for operation
+        }
+      }
       
       // Start server after DB connection is successful
       server.listen(PORT, () => {

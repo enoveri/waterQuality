@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://water-quality-backend.onrender.com/api/:path*"
+      "destination": "https://waterquality-uba1.onrender.com/api/:path*"
     }
   ]
 }
