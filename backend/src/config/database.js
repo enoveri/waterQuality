@@ -7,15 +7,39 @@ const dbPath = process.env.DB_PATH || path.join(__dirname, '../../database/datab
 
 // Ensure the database directory exists
 const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-  console.log(`Creating database directory: ${dbDir}`);
-  fs.mkdirSync(dbDir, { recursive: true });
+try {
+  // Try to create the directory if it doesn't exist
+  if (!fs.existsSync(dbDir)) {
+    console.log(`Creating database directory: ${dbDir}`);
+    fs.mkdirSync(dbDir, { recursive: true });
+  }
+} catch (error) {
+  console.error(`Unable to create database directory ${dbDir}: ${error.message}`);
+  console.warn('Falling back to a directory in the application folder');
+  
+  // Fall back to a directory in the application folder that we can definitely write to
+  const fallbackDir = path.join(__dirname, '../../database');
+  const fallbackPath = path.join(fallbackDir, 'database.sqlite');
+  
+  if (!fs.existsSync(fallbackDir)) {
+    try {
+      fs.mkdirSync(fallbackDir, { recursive: true });
+      console.log(`Created fallback database directory: ${fallbackDir}`);
+    } catch (innerError) {
+      console.error(`Failed to create fallback directory: ${innerError.message}`);
+      console.error('Database initialization may fail');
+    }
+  }
+  
+  // Update the dbPath to use the fallback
+  process.env.DB_PATH = fallbackPath;
+  console.log(`Using fallback database path: ${fallbackPath}`);
 }
 
 // Configure Sequelize options
 const sequelizeOptions = {
   dialect: 'sqlite',
-  storage: dbPath,
+  storage: process.env.DB_PATH || dbPath,
   logging: process.env.NODE_ENV === 'development' ? (msg) => console.log(`[Sequelize] ${msg}`) : false,
   define: {
     timestamps: true, // Adds createdAt and updatedAt timestamps to all models
@@ -83,4 +107,4 @@ module.exports = {
   testConnection,
   syncDatabase,
   closeConnection
-}; 
+};
