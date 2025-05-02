@@ -17,8 +17,8 @@ export const useESP32Data = () => {
   })
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState(null)
-  const [shouldSaveToDb, setShouldSaveToDb] = useState(true) // Option to toggle DB saving
-  const [savingInterval, setSavingInterval] = useState(5000) // Save every 5 seconds by default
+  const [shouldSaveToDb, setShouldSaveToDb] = useState(true) 
+  const [savingInterval, setSavingInterval] = useState(5000)
   
   // Use ref to keep track of event source and timers
   const eventSourceRef = useRef(null);
@@ -39,7 +39,8 @@ export const useESP32Data = () => {
           limit: 300 // MAX_HISTORY_POINTS
         });
         
-        if (response.success && response.data.length > 0) {
+        // Check that response has the expected structure
+        if (response && response.success && Array.isArray(response.data) && response.data.length > 0) {
           // Format data for the application
           const formattedData = {
             temperature: [],
@@ -49,38 +50,57 @@ export const useESP32Data = () => {
           };
           
           response.data.forEach(item => {
-            formattedData.temperature.push({ timestamp: new Date(item.timestamp), value: item.temperature });
-            formattedData.pH.push({ timestamp: new Date(item.timestamp), value: item.pH });
-            formattedData.turbidity.push({ timestamp: new Date(item.timestamp), value: item.turbidity });
-            formattedData.waterLevel.push({ timestamp: new Date(item.timestamp), value: item.waterLevel });
+            if (item && typeof item === 'object') {
+              formattedData.temperature.push({ 
+                timestamp: new Date(item.timestamp || Date.now()), 
+                value: Number(item.temperature || 0) 
+              });
+              formattedData.pH.push({ 
+                timestamp: new Date(item.timestamp || Date.now()), 
+                value: Number(item.pH || 0) 
+              });
+              formattedData.turbidity.push({ 
+                timestamp: new Date(item.timestamp || Date.now()), 
+                value: Number(item.turbidity || 0) 
+              });
+              formattedData.waterLevel.push({ 
+                timestamp: new Date(item.timestamp || Date.now()), 
+                value: Number(item.waterLevel || 0) 
+              });
+            }
           });
           
           setDataHistory(formattedData);
           
           // Also set current data to the latest value
           const latest = response.data[response.data.length - 1];
-          setData({
-            temperature: latest.temperature,
-            pH: latest.pH,
-            turbidity: latest.turbidity,
-            waterLevel: latest.waterLevel
-          });
+          if (latest) {
+            setData({
+              temperature: Number(latest.temperature || 0),
+              pH: Number(latest.pH || 0),
+              turbidity: Number(latest.turbidity || 0),
+              waterLevel: Number(latest.waterLevel || 0)
+            });
+          }
+        } else {
+          console.log('No historical data available or invalid response format:', response);
         }
       } catch (error) {
         console.error('Error loading historical data:', error);
         // Try getting at least the latest data
         try {
           const latestResponse = await waterQualityService.getLatestData();
-          if (latestResponse.success && latestResponse.data) {
+          if (latestResponse && latestResponse.success && latestResponse.data) {
             setData({
-              temperature: latestResponse.data.temperature,
-              pH: latestResponse.data.pH,
-              turbidity: latestResponse.data.turbidity,
-              waterLevel: latestResponse.data.waterLevel
+              temperature: Number(latestResponse.data.temperature || 0),
+              pH: Number(latestResponse.data.pH || 0),
+              turbidity: Number(latestResponse.data.turbidity || 0),
+              waterLevel: Number(latestResponse.data.waterLevel || 0)
             });
           }
         } catch (latestError) {
           console.error('Error loading latest data:', latestError);
+          // Continue with default values
         }
       }
     };
@@ -117,12 +137,22 @@ export const useESP32Data = () => {
       
       es.onmessage = (event) => {
         try {
-          const eventData = JSON.parse(event.data);
+          // Safely parse the event data
+          let eventData;
+          try {
+            eventData = JSON.parse(event.data);
+          } catch (parseError) {
+            console.error('Error parsing SSE data:', parseError);
+            return;
+          }
+          
+          if (!eventData) return;
+          
           const timestamp = new Date();
           
           // Handle connection status updates
           if (eventData.type === 'connection_status') {
-            setIsConnected(eventData.isConnected);
+            setIsConnected(!!eventData.isConnected);
             if (!eventData.isConnected && eventData.error) {
               setError(eventData.error);
             } else if (eventData.isConnected) {
@@ -133,7 +163,7 @@ export const useESP32Data = () => {
           
           // Handle initial data (when first connecting)
           if (eventData.type === 'initial') {
-            setIsConnected(eventData.isConnected);
+            setIsConnected(!!eventData.isConnected);
             if (!eventData.isConnected) {
               setError('Server is not connected to ESP32');
             } else {
@@ -141,12 +171,12 @@ export const useESP32Data = () => {
             }
           }
           
-          // Update current data with sensor readings
+          // Update current data with sensor readings (with defaults if missing)
           const newData = {
-            temperature: eventData.temperature || 0,
-            pH: eventData.pH || 0,
-            turbidity: eventData.turbidity || 0,
-            waterLevel: eventData.waterLevel || 0
+            temperature: Number(eventData.temperature || 0),
+            pH: Number(eventData.pH || 0),
+            turbidity: Number(eventData.turbidity || 0),
+            waterLevel: Number(eventData.waterLevel || 0)
           };
           
           setData(newData);
@@ -154,10 +184,10 @@ export const useESP32Data = () => {
           // Update history
           setDataHistory(prev => {
             const newHistory = {
-              temperature: [...prev.temperature, { timestamp, value: newData.temperature }],
-              pH: [...prev.pH, { timestamp, value: newData.pH }],
-              turbidity: [...prev.turbidity, { timestamp, value: newData.turbidity }],
-              waterLevel: [...prev.waterLevel, { timestamp, value: newData.waterLevel }]
+              temperature: [...(prev.temperature || []), { timestamp, value: newData.temperature }],
+              pH: [...(prev.pH || []), { timestamp, value: newData.pH }],
+              turbidity: [...(prev.turbidity || []), { timestamp, value: newData.turbidity }],
+              waterLevel: [...(prev.waterLevel || []), { timestamp, value: newData.waterLevel }]
             };
             
             // Keep only the last 300 points
@@ -169,7 +199,7 @@ export const useESP32Data = () => {
             };
           });
         } catch (error) {
-          console.error('Error parsing data:', error);
+          console.error('Error handling SSE message:', error);
         }
       };
       
@@ -184,7 +214,7 @@ export const useESP32Data = () => {
     } catch (error) {
       console.error('Error creating EventSource:', error);
       setIsConnected(false);
-      setError(`Failed to connect to server: ${error.message}. Click reconnect to try again.`);
+      setError(`Failed to connect to server: ${error.message || 'Unknown error'}. Click reconnect to try again.`);
     }
   }, [closeConnection]);
 
@@ -285,8 +315,8 @@ export const useESP32Data = () => {
     dataHistory,
     isConnected, 
     error,
-    toggleDatabaseSaving, // Expose function to enable/disable DB saving
-    shouldSaveToDb, // Current state of DB saving
-    reconnect // Manual reconnection function
+    toggleDatabaseSaving,
+    shouldSaveToDb,
+    reconnect
   };
-}; 
+};

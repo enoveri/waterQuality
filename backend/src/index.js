@@ -402,13 +402,9 @@ app.get('/api/live-data', (req, res) => {
   // Handle CORS for SSE endpoint
   const origin = req.headers.origin;
   if (process.env.NODE_ENV === 'production') {
-    const allowedOrigins = [
-      'https://water-quality-frontend.vercel.app',
-      'https://your-custom-domain.com'
-    ];
-    
-    if (origin && allowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
+    // Allow any Vercel domain or direct requests
+    if (!origin || origin.endsWith('.vercel.app')) {
+      res.setHeader('Access-Control-Allow-Origin', origin || '*');
     }
   } else {
     // In development, allow all origins
