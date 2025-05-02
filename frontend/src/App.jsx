@@ -48,11 +48,36 @@ const SENSORS = [
 
 // Dashboard component (main view)
 function Dashboard({ data, dataHistory, error, thresholds, getStatus, getOverallStatus, units }) {
+  // Ensure data exists and has all required properties
+  const safeData = useMemo(() => {
+    return {
+      temperature: data?.temperature ?? 0,
+      pH: data?.pH ?? 0,
+      turbidity: data?.turbidity ?? 0,
+      waterLevel: data?.waterLevel ?? 0
+    };
+  }, [data]);
+  
+  // Ensure dataHistory exists with all required properties
+  const safeDataHistory = useMemo(() => {
+    return {
+      temperature: dataHistory?.temperature || [],
+      pH: dataHistory?.pH || [],
+      turbidity: dataHistory?.turbidity || [],
+      waterLevel: dataHistory?.waterLevel || []
+    };
+  }, [dataHistory]);
+  
   // Format value with the correct unit
   const formatValue = (value, type) => {
+    // Handle undefined values
+    if (value === undefined || value === null) {
+      return type === 'temperature' ? '0°C' : '0';
+    }
+    
     switch (type) {
       case 'temperature':
-        return `${value.toFixed(1)}${units.temperature === 'C' ? '°C' : '°F'}`
+        return `${value.toFixed(1)}${units?.temperature === 'C' ? '°C' : '°F'}`
       case 'pH':
         return value.toFixed(1)
       case 'turbidity':
@@ -76,31 +101,31 @@ function Dashboard({ data, dataHistory, error, thresholds, getStatus, getOverall
         </div>
       )}
 
-      <AlertsSection data={data} thresholds={thresholds} />
+      <AlertsSection data={safeData} thresholds={thresholds} />
       
       <SensorHealth sensors={SENSORS} />
 
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 md:gap-4 mb-3 sm:mb-4 md:mb-6">
         <MetricCard 
           title="Temperature" 
-          value={formatValue(data.temperature, 'temperature')}
+          value={formatValue(safeData.temperature, 'temperature')}
           icon={Thermometer}
-          status={getStatus(data.temperature, 'temperature')}
+          status={getStatus(safeData.temperature, 'temperature')}
           unit=""
         />
         <MetricCard 
           title="pH" 
-          value={formatValue(data.pH, 'pH')}
+          value={formatValue(safeData.pH, 'pH')}
           icon={Droplets}
-          status={getStatus(data.pH, 'pH')}
+          status={getStatus(safeData.pH, 'pH')}
           unit=""
         />
         <MetricCard 
           title="Turbidity" 
-          value={formatValue(data.turbidity, 'turbidity')}
+          value={formatValue(safeData.turbidity, 'turbidity')}
           icon={Droplets}
-          status={getStatus(data.turbidity, 'turbidity')}
-          unit={units.turbidity}
+          status={getStatus(safeData.turbidity, 'turbidity')}
+          unit={units?.turbidity || 'NTU'}
         />
         <MetricCard 
           title="Overall Quality" 
@@ -113,32 +138,32 @@ function Dashboard({ data, dataHistory, error, thresholds, getStatus, getOverall
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2 md:gap-4 mb-3 sm:mb-4 md:mb-6">
         <MiniChart
-          data={dataHistory.temperature}
+          data={safeDataHistory.temperature}
           label="Temperature"
           color="#ef4444"
-          unit={units.temperature === 'C' ? '°C' : '°F'}
+          unit={units?.temperature === 'C' ? '°C' : '°F'}
         />
         <MiniChart
-          data={dataHistory.pH}
+          data={safeDataHistory.pH}
           label="pH"
           color="#3b82f6"
           unit=""
         />
         <MiniChart
-          data={dataHistory.turbidity}
+          data={safeDataHistory.turbidity}
           label="Turbidity"
           color="#10b981"
-          unit={units.turbidity}
+          unit={units?.turbidity || 'NTU'}
         />
         <MiniChart
-          data={dataHistory.waterLevel}
+          data={safeDataHistory.waterLevel}
           label="Water Level"
           color="#8b5cf6"
-          unit={units.waterLevel}
+          unit={units?.waterLevel || 'cm'}
         />
       </div>
 
-      <Chart data={data} units={units} />
+      <Chart data={safeData} units={units} />
     </>
   )
 }
@@ -1069,30 +1094,38 @@ function App() {
 
   // Helper function to determine status based on values
   const getStatus = (value, type) => {
+    if (value === undefined || value === null) return 'good'; // Default if no data
+    
     switch (type) {
       case 'temperature':
+        if (!thresholds.temperature) return 'good'; // Protect against undefined thresholds
         return value > thresholds.temperature.high || value < thresholds.temperature.low ? 'poor' : 
-               value > (thresholds.temperature.high - 2) || value < (thresholds.temperature.low + 2) ? 'moderate' : 'good'
+               value > (thresholds.temperature.high - 2) || value < (thresholds.temperature.low + 2) ? 'moderate' : 'good';
       case 'turbidity':
+        if (!thresholds.turbidity) return 'good'; // Protect against undefined thresholds
         return value > thresholds.turbidity.high ? 'poor' : 
-               value > (thresholds.turbidity.high * 0.75) ? 'moderate' : 'good'
+               value > (thresholds.turbidity.high * 0.75) ? 'moderate' : 'good';
       case 'pH':
+        if (!thresholds.pH) return 'good'; // Protect against undefined thresholds
         return value > thresholds.pH.high || value < thresholds.pH.low ? 'poor' :
-               value > (thresholds.pH.high - 0.5) || value < (thresholds.pH.low + 0.5) ? 'moderate' : 'good'
+               value > (thresholds.pH.high - 0.5) || value < (thresholds.pH.low + 0.5) ? 'moderate' : 'good';
       default:
-        return 'good'
+        return 'good';
     }
   }
 
   // Calculate overall status
   const getOverallStatus = () => {
-    const tempStatus = getStatus(data.temperature, 'temperature')
-    const turbStatus = getStatus(data.turbidity, 'turbidity')
-    const phStatus = getStatus(data.pH, 'pH')
+    // Handle the case where data is undefined or null
+    if (!data) return 'good';
     
-    if (tempStatus === 'poor' || turbStatus === 'poor' || phStatus === 'poor') return 'poor'
-    if (tempStatus === 'moderate' || turbStatus === 'moderate' || phStatus === 'moderate') return 'moderate'
-    return 'good'
+    const tempStatus = getStatus(data.temperature, 'temperature');
+    const turbStatus = getStatus(data.turbidity, 'turbidity');
+    const phStatus = getStatus(data.pH, 'pH');
+    
+    if (tempStatus === 'poor' || turbStatus === 'poor' || phStatus === 'poor') return 'poor';
+    if (tempStatus === 'moderate' || turbStatus === 'moderate' || phStatus === 'moderate') return 'moderate';
+    return 'good';
   }
 
   // Convert measurement units
