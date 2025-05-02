@@ -336,8 +336,35 @@ if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
+// Configure CORS for different environments
+const corsOptions = {
+  origin: function (origin, callback) {
+    // In development, allow all origins
+    if (process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+      return;
+    }
+    
+    // In production, only allow specific origins
+    const allowedOrigins = [
+      'https://water-quality-frontend.vercel.app', // Your Vercel domain
+      'https://your-custom-domain.com'            // Any custom domain you might use
+    ];
+    
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true,
+  optionsSuccessStatus: 204
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -353,7 +380,22 @@ app.get('/api/live-data', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  
+  // Handle CORS for SSE endpoint
+  const origin = req.headers.origin;
+  if (process.env.NODE_ENV === 'production') {
+    const allowedOrigins = [
+      'https://water-quality-frontend.vercel.app',
+      'https://your-custom-domain.com'
+    ];
+    
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+  } else {
+    // In development, allow all origins
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
   
   // Send initial data immediately
   const initialData = {
@@ -391,13 +433,60 @@ app.post('/api/reconnect-esp32', (req, res) => {
   res.json({ success: true, message: 'Reconnection to ESP32 initiated' });
 });
 
-// Health check route
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    message: 'Server is running',
-    esp32Connected: connectionState === OPEN
-  });
+// Health check route with enhanced diagnostics
+app.get('/health', async (req, res) => {
+  try {
+    // Test database connection
+    let dbStatus = 'unknown';
+    try {
+      await sequelize.authenticate();
+      dbStatus = 'connected';
+    } catch (error) {
+      dbStatus = `error: ${error.message}`;
+    }
+    
+    // Get counts of records in database
+    let dataCount = 0;
+    let alertCount = 0;
+    let deviceCount = 0;
+    
+    try {
+      dataCount = await WaterQualityData.count();
+      alertCount = await Alert.count();
+      deviceCount = await Device.count();
+    } catch (error) {
+      console.error('Error getting record counts:', error);
+    }
+    
+    res.status(200).json({ 
+      status: 'ok', 
+      message: 'Server is running',
+      esp32_connection: {
+        status: connectionState === OPEN ? 'connected' : 'disconnected',
+        mode: USE_FALLBACK ? 'fallback/mock' : 'direct',
+        reconnectAttempts
+      },
+      database: {
+        status: dbStatus,
+        counts: {
+          data: dataCount,
+          alerts: alertCount,
+          devices: deviceCount
+        },
+        path: process.env.DB_PATH || 'default_path'
+      },
+      server: {
+        uptime: Math.floor(process.uptime()),
+        env: process.env.NODE_ENV || 'development',
+        memory: process.memoryUsage().rss / (1024 * 1024) + ' MB'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: `Health check failed: ${error.message}`
+    });
+  }
 });
 
 // Error handling middleware
@@ -414,6 +503,13 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   try {
     console.log('Starting server initialization...');
+    
+    // Run startup health checks in production
+    if (process.env.NODE_ENV === 'production') {
+      const { runStartupChecks } = require('./utils/startupCheck');
+      await runStartupChecks();
+    }
+    
     // Test database connection
     console.log('Testing database connection...');
     const connected = await testConnection();
@@ -489,4 +585,4 @@ process.on('unhandledRejection', (err) => {
   // Do not crash the server, just log the error
 });
 
-module.exports = app; // For testing purposes 
+module.exports = app; // For testing purposes

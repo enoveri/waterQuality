@@ -791,6 +791,13 @@ export function AdvancedCharts() {
       }
 
       console.log(`[DEBUG] Creating chart data for ${chartType} with ${dataPoints.length} points`);
+      
+      // Add specific debugging for bar chart
+      if (chartType === "bar") {
+        console.log("[DEBUG] Bar chart data points:", dataPoints.slice(0, 5));
+        console.log("[DEBUG] Bar chart variable:", xVariable);
+        console.log("[DEBUG] Bar chart color:", VARIABLES.find((v) => v.id === xVariable).color);
+      }
 
       if (chartType === "scatter") {
         return {
@@ -818,28 +825,54 @@ export function AdvancedCharts() {
         };
       }
 
-      // For time series charts - properly format data for line, bar, and area charts
-      return {
-        datasets: [
-          {
-            label: VARIABLES.find((v) => v.id === xVariable).label,
-            data: dataPoints.map((d) => ({
-              x: d.x,  // Keep as Date object for proper time scale
-              y: d.y,
-            })),
-            borderColor: VARIABLES.find((v) => v.id === xVariable).color,
-            backgroundColor: chartType === "area"
-              ? `${VARIABLES.find((v) => v.id === xVariable).color}33`
-              : chartType === "bar" 
-                ? `${VARIABLES.find((v) => v.id === xVariable).color}CC`
-                : VARIABLES.find((v) => v.id === xVariable).color,
-            fill: chartType === "area",
-            tension: 0.4,
-            borderWidth: chartType === "bar" ? 1 : 2,
-            pointRadius: chartType === "line" ? 2 : 0,
-          },
-        ],
+      // For time series charts
+      const baseDataset = {
+        label: VARIABLES.find((v) => v.id === xVariable).label,
+        data: dataPoints.map((d) => ({
+          x: d.x,  // Keep as Date object for proper time scale
+          y: d.y,
+        })),
+        borderColor: VARIABLES.find((v) => v.id === xVariable).color,
       };
+      
+      // Customizations based on chart type
+      if (chartType === "bar") {
+        return {
+          datasets: [{
+            ...baseDataset,
+            backgroundColor: VARIABLES.find((v) => v.id === xVariable).color,
+            borderWidth: 1,
+            borderColor: `${VARIABLES.find((v) => v.id === xVariable).color}CC`,
+            barPercentage: 0.95,
+            categoryPercentage: 0.9,
+            borderRadius: 2,
+            // No tension for bar charts
+          }],
+        };
+      } else if (chartType === "area") {
+        return {
+          datasets: [{
+            ...baseDataset,
+            backgroundColor: `${VARIABLES.find((v) => v.id === xVariable).color}33`,
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2,
+            pointRadius: 2,
+          }],
+        };
+      } else {
+        // Line chart (default)
+        return {
+          datasets: [{
+            ...baseDataset,
+            backgroundColor: VARIABLES.find((v) => v.id === xVariable).color,
+            fill: false, 
+            tension: 0.4,
+            borderWidth: 2,
+            pointRadius: 2,
+          }],
+        };
+      }
     }, [dataPoints, chartType, xVariable, yVariable, regressionLine, VARIABLES]);
 
     // Function to determine appropriate time units based on time range
@@ -941,13 +974,18 @@ export function AdvancedCharts() {
       
       const timeConfig = getTimeConfig(timeRange, chartType, timeFormat, dataPoints);
 
+      // Debug the time configuration for bar charts
+      if (chartType === "bar") {
+        console.log("[DEBUG] Bar chart time configuration:", timeConfig);
+      }
+
       const baseOptions = {
         responsive: true,
         maintainAspectRatio: true,
         aspectRatio: 2.2,
         interaction: {
-          mode: "index",
-          intersect: false,
+          mode: chartType === "bar" ? "nearest" : "index",
+          intersect: chartType === "bar",
         },
         plugins: {
           legend: {
@@ -970,7 +1008,7 @@ export function AdvancedCharts() {
                 ? `${VARIABLES.find((v) => v.id === yVariable).label} vs ${
                     VARIABLES.find((v) => v.id === xVariable).label
                   }`
-                : VARIABLES.find((v) => v.id === yVariable).label,
+                : VARIABLES.find((v) => v.id === xVariable).label,
             font: {
               size: 12,
             },
@@ -1053,49 +1091,83 @@ export function AdvancedCharts() {
         };
       }
 
+      // Time scale configuration
+      const timeScaleConfig = {
+        type: "time",
+        time: {
+          unit: timeConfig.unit || "minute",
+          displayFormats: timeConfig.displayFormats || {
+            minute: timeFormat === "12h" ? "h:mm a" : "HH:mm",
+            hour: timeFormat === "12h" ? "h:mm a" : "HH:mm",
+            day: "MMM d",
+            second: "HH:mm:ss",
+            millisecond: "HH:mm:ss.SSS",
+          },
+          tooltipFormat: timeConfig.tooltipFormat,
+        },
+        adapters: {
+          date: {
+            locale: enUS,
+          },
+        },
+        title: {
+          display: true,
+          text: "Time",
+          font: {
+            size: 10,
+          },
+          padding: 4,
+        },
+        ticks: {
+          maxTicksLimit: 6,
+          autoSkip: true,
+          padding: 3,
+          font: {
+            size: 9,
+          },
+        },
+      };
+
+      // Special handling for bar chart time scales
+      if (chartType === "bar") {
+        console.log("[DEBUG] Setting bar chart specific time scale options");
+        
+        // Essential for proper bar positioning with time scale
+        timeScaleConfig.offset = true;
+        timeScaleConfig.stacked = false;
+        
+        // Add bar chart specific options
+        timeScaleConfig.grid = {
+          offset: true
+        };
+        
+        // For bar charts, we need to adjust how the bars align
+        timeScaleConfig.distribution = 'series';
+        
+        // Adjust ticks based on data density
+        if (dataPoints.length > 100) {
+          timeScaleConfig.ticks.maxTicksLimit = 10;
+        } else if (dataPoints.length > 50) {
+          timeScaleConfig.ticks.maxTicksLimit = 8; 
+        } else if (dataPoints.length > 10) {
+          timeScaleConfig.ticks.maxTicksLimit = 6;
+        } else {
+          // For small datasets, show more ticks
+          timeScaleConfig.ticks.maxTicksLimit = dataPoints.length;
+        }
+        
+        console.log("[DEBUG] Finalized bar chart time scale config:", timeScaleConfig);
+      }
+
       return {
         ...baseOptions,
         scales: {
-          x: {
-            type: "time",
-            time: {
-              unit: timeConfig.unit || "minute",
-              displayFormats: timeConfig.displayFormats || {
-                minute: timeFormat === "12h" ? "h:mm a" : "HH:mm",
-                hour: timeFormat === "12h" ? "h:mm a" : "HH:mm",
-                day: "MMM d",
-                second: "HH:mm:ss",
-                millisecond: "HH:mm:ss.SSS",
-              },
-              tooltipFormat: timeConfig.tooltipFormat,
-            },
-            adapters: {
-              date: {
-                locale: enUS,
-              },
-            },
-            title: {
-              display: true,
-              text: "Time",
-              font: {
-                size: 10,
-              },
-              padding: 4,
-            },
-            ticks: {
-              maxTicksLimit: 6,
-              autoSkip: true,
-              padding: 3,
-              font: {
-                size: 9,
-              },
-            },
-          },
+          x: timeScaleConfig,
           y: {
             title: {
               display: true,
-              text: `${VARIABLES.find((v) => v.id === yVariable).label} ${
-                VARIABLES.find((v) => v.id === yVariable).unit
+              text: `${VARIABLES.find((v) => v.id === (chartType === "scatter" ? yVariable : xVariable)).label} ${
+                VARIABLES.find((v) => v.id === (chartType === "scatter" ? yVariable : xVariable)).unit
               }`,
               font: {
                 size: 10,
@@ -1109,6 +1181,7 @@ export function AdvancedCharts() {
                 size: 9,
               },
             },
+            beginAtZero: chartType === "bar", // Bars should start from zero
           },
         },
       };

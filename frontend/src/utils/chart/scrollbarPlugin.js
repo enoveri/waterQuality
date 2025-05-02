@@ -46,6 +46,9 @@ const scrollbarPlugin = {
 
   // Handle mouse down on the scrollbar
   _handleMouseDown(chart, event) {
+    // Add null check for event.chart.canvas
+    if (!event?.chart?.canvas) return;
+
     const rect = event.chart.canvas.getBoundingClientRect();
     const x = event.native.clientX - rect.left;
     const y = event.native.clientY - rect.top;
@@ -76,6 +79,9 @@ const scrollbarPlugin = {
   // Handle mouse move for scrollbar dragging
   _handleMouseMove(chart, event) {
     if (!this._isDragging) return;
+
+    // Add null check for event.chart.canvas
+    if (!event?.chart?.canvas) return;
 
     const rect = event.chart.canvas.getBoundingClientRect();
     const x = event.native.clientX - rect.left;
@@ -122,7 +128,13 @@ const scrollbarPlugin = {
   beforeInit(chart) {
     const plugin = this;
 
+    // Add null check for chart.canvas
+    if (!chart.canvas) return;
+
     chart.canvas.addEventListener("mousedown", (e) => {
+      // Add null check for chart.canvas
+      if (!chart.canvas) return;
+
       const rect = chart.canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;

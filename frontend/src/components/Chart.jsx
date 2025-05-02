@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Line } from "react-chartjs-2";
+import { Line, Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
   Title,
   Tooltip,
   Legend,
@@ -23,6 +24,7 @@ import {
   Play,
   Pause,
 } from "lucide-react";
+import { getBarChartConfig, optimizeTimeScaleForBarChart } from "../utils/chart/barChartAdapter";
 
 // ─── register ─────────────────────────────────────────────────
 ChartJS.register(
@@ -30,6 +32,7 @@ ChartJS.register(
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
   Title,
   Tooltip,
   Legend,
@@ -91,7 +94,7 @@ function getSuggestedYMax(sensor) {
 const MAX_HISTORY = 300;
 const LIVE_WINDOW_MS = 60000;
 
-export const Chart = ({ data }) => {
+export const Chart = ({ data, chartType = "line" }) => {
   const chartRef = useRef(null);
   const [activeSensor, setActiveSensor] = useState("temperature");
   const [autoScroll, setAutoScroll] = useState(true);
@@ -103,6 +106,27 @@ export const Chart = ({ data }) => {
     waterLevel: [],
   });
   const [selectedPoint, setSelectedPoint] = useState(null);
+  // Track previous chart type to handle clean chart recreation
+  const [prevChartType, setPrevChartType] = useState(chartType);
+
+  // Force chart recreation when changing between chart types
+  useEffect(() => {
+    if (prevChartType !== chartType && chartRef.current) {
+      console.log(`[DEBUG] Chart type changed from ${prevChartType} to ${chartType}, destroying chart instance`);
+
+      // Destroy the chart instance to prevent issues when switching types
+      if (chartRef.current?.chartInstance) {
+        console.log("[DEBUG] Destroying existing chart instance");
+        chartRef.current.chartInstance.destroy();
+      } else {
+        console.log("[DEBUG] No chart instance found to destroy");
+      }
+
+      // Update the previous chart type
+      setPrevChartType(chartType);
+      console.log(`[DEBUG] Updated prevChartType to: ${chartType}`);
+    }
+  }, [chartType, prevChartType]);
 
   // 1) Append new point
   useEffect(() => {
@@ -148,79 +172,193 @@ export const Chart = ({ data }) => {
 
   // 3) Memoize data payload
   const chartData = useMemo(() => {
+    console.log(`[DEBUG] Building chart data for type=${chartType}, sensor=${activeSensor}, points=${dataHistory.timestamps.length}`);
+    
+    // Extract the data points
+    const rawDataPoints = dataHistory.timestamps.map((t, i) => ({
+      x: t,
+      y: dataHistory[activeSensor][i],
+    }));
+    
+    console.log(`[DEBUG] Raw data points created: ${rawDataPoints.length}`);
+    console.log(`[DEBUG] First data point:`, rawDataPoints.length > 0 ? rawDataPoints[0] : 'none');
+    
+    // Different configuration based on chart type
+    let datasetConfig;
+    
+    if (chartType === "bar") {
+      console.log("[DEBUG] Creating BAR chart dataset");
+      
+      // For bar charts, we need to ensure the data is formatted correctly
+      // Chart.js expects {x, y} format for time scale bar charts
+      datasetConfig = {
+        label: SENSORS[activeSensor].label,
+        data: rawDataPoints,
+        backgroundColor: SENSORS[activeSensor].color,
+        borderColor: SENSORS[activeSensor].color,
+        borderWidth: 1,
+        barPercentage: 0.8,
+        categoryPercentage: 0.9,
+      };
+      
+      // Get more bar chart configuration from adapter if available
+      if (typeof getBarChartConfig === 'function') {
+        const barConfig = getBarChartConfig(dataHistory.timestamps, "auto");
+        console.log("[DEBUG] Bar chart adapter config:", barConfig);
+        Object.assign(datasetConfig, barConfig);
+      }
+    } else {
+      // Line chart configuration
+      console.log("[DEBUG] Creating LINE chart dataset");
+      datasetConfig = {
+        label: SENSORS[activeSensor].label,
+        data: rawDataPoints,
+        borderColor: SENSORS[activeSensor].color,
+        backgroundColor: SENSORS[activeSensor].fill,
+        tension: 0.2,
+        fill: true,
+        pointRadius: 0,
+        pointHoverRadius: 3,
+      };
+    }
+    
     const chartDataConfig = {
-      datasets: [
-        {
-          label: SENSORS[activeSensor].label,
-          data: dataHistory.timestamps.map((t, i) => ({
-            x: t,
-            y: dataHistory[activeSensor][i],
-          })),
-          borderColor: SENSORS[activeSensor].color,
-          backgroundColor: SENSORS[activeSensor].fill,
-          tension: 0.2,
-          fill: true,
-          pointRadius: 0,
-          pointHoverRadius: 3,
-        },
-      ],
+      datasets: [datasetConfig],
     };
 
-    // Log the selected chart data
-    console.log(
-      `Chart rendering for ${SENSORS[activeSensor].label}:`,
-      chartData
-    );
+    // Add extensive debugging for chart data 
+    console.log(`[DEBUG] Final ${chartType} chart dataset:`, datasetConfig);
+    console.log(`[DEBUG] Dataset has ${datasetConfig.data.length} points`);
+    
+    if (datasetConfig.data.length > 0) {
+      // Check for any null or undefined values that could break the chart
+      const hasInvalidData = datasetConfig.data.some(
+        point => point.x === null || point.x === undefined || point.y === null || point.y === undefined
+      );
+      
+      if (hasInvalidData) {
+        console.error("[ERROR] Chart dataset contains null or undefined values!");
+      }
+    } else {
+      console.warn("[WARN] No data points available for the chart!");
+    }
 
     return chartDataConfig;
-  }, [dataHistory, activeSensor]);
+  }, [dataHistory, activeSensor, chartType]);
 
   // 4) Memoize options with full displayFormats
   const options = useMemo(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: {
-          type: "time",
-          time: {
-            tooltipFormat: "HH:mm:ss",
-            displayFormats: {
-              millisecond: "HH:mm:ss.SSS",
-              second: "HH:mm:ss",
-              minute: "HH:mm",
-              hour: "HH:mm",
-              day: "MMM d",
-              month: "MMM yyyy",
-              year: "yyyy",
+    () => {
+      console.log(`[DEBUG] Creating chart options for ${chartType}`);
+      
+      const baseOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          x: {
+            type: "time",
+            time: {
+              tooltipFormat: "HH:mm:ss",
+              displayFormats: {
+                millisecond: "HH:mm:ss.SSS",
+                second: "HH:mm:ss",
+                minute: "HH:mm",
+                hour: "HH:mm",
+                day: "MMM d",
+                month: "MMM yyyy",
+                year: "yyyy",
+              },
+            },
+            ticks: {
+              source: "auto",
+              autoSkip: true,
+              maxRotation: 0,
             },
           },
-          ticks: {
-            source: "auto",
-            autoSkip: true,
-            maxRotation: 0,
+          y: {
+            min: yMin,
+            max: yMax,
+            title: { display: true, text: SENSORS[activeSensor].label },
+            ticks: { count: 6, callback: (v) => Number(v).toFixed(2) },
           },
         },
-        y: {
-          min: yMin,
-          max: yMax,
-          title: { display: true, text: SENSORS[activeSensor].label },
-          ticks: { count: 6, callback: (v) => Number(v).toFixed(2) },
-        },
-      },
-      plugins: {
-        zoom: {
-          pan: { enabled: true, mode: "x", threshold: 5 },
+        plugins: {
           zoom: {
-            wheel: { enabled: true, speed: 0.1 },
-            pinch: { enabled: true },
-            mode: "x",
+            pan: { enabled: true, mode: "x", threshold: 5 },
+            zoom: {
+              wheel: { enabled: true, speed: 0.1 },
+              pinch: { enabled: true },
+              mode: "x",
+            },
+          },
+          legend: {
+            display: true,
+            position: 'top',
+          },
+          tooltip: {
+            enabled: true,
+            mode: 'index',
+            intersect: false,
           },
         },
-      },
-    }),
-    [activeSensor, yMin, yMax]
+      };
+      
+      // Add specific options for bar charts
+      if (chartType === "bar") {
+        console.log("[DEBUG] Setting up bar chart specific options");
+        
+        // CRITICAL SETTING: determine time unit based on data span
+        const dataPoints = dataHistory.timestamps;
+        let timeUnit = 'hour';
+        
+        if (dataPoints.length >= 2) {
+          const firstPoint = dataPoints[0];
+          const lastPoint = dataPoints[dataPoints.length - 1];
+          const timeSpanMs = lastPoint - firstPoint;
+          
+          console.log(`[DEBUG] Data time span: ${timeSpanMs}ms (${timeSpanMs / (1000 * 60 * 60 * 24)} days)`);
+          
+          // Choose appropriate time unit based on data span
+          if (timeSpanMs > 1000 * 60 * 60 * 24 * 30) { // > 30 days
+            timeUnit = 'month';
+          } else if (timeSpanMs > 1000 * 60 * 60 * 24 * 2) { // > 2 days
+            timeUnit = 'day';
+          } else if (timeSpanMs > 1000 * 60 * 60 * 2) { // > 2 hours
+            timeUnit = 'hour';
+          } else {
+            timeUnit = 'minute';
+          }
+          
+          console.log(`[DEBUG] Selected time unit for bar chart: ${timeUnit}`);
+          
+          // Update time configuration
+          baseOptions.scales.x.time.unit = timeUnit;
+        }
+        
+        // Essential settings for bar charts with time scale
+        baseOptions.scales.x.offset = true;
+        baseOptions.scales.x.stacked = false;
+        baseOptions.scales.x.distribution = 'series'; 
+        
+        // Grid offset for proper bar alignment
+        baseOptions.scales.x.grid = { offset: true };
+        
+        // Adjust bar width based on data density
+        if (dataPoints.length > 50) {
+          baseOptions.scales.x.ticks.maxTicksLimit = 10;
+        } else if (dataPoints.length > 20) {
+          baseOptions.scales.x.ticks.maxTicksLimit = 8;
+        } else {
+          baseOptions.scales.x.ticks.maxTicksLimit = 6;
+        }
+        
+        console.log("[DEBUG] Bar chart x-axis config:", baseOptions.scales.x);
+      }
+
+      return baseOptions;
+    },
+    [activeSensor, yMin, yMax, chartType, dataHistory.timestamps]
   );
 
   // 5) Zoom/pan handlers
@@ -324,12 +462,45 @@ export const Chart = ({ data }) => {
 
       {/* the chart */}
       <div style={{ height: 300 }}>
-        <Line
-          ref={chartRef}
-          data={chartData}
-          options={options}
-          onClick={handleChartClick}
-        />
+        {console.log(`[DEBUG] Rendering chart container for type: ${chartType}`)}
+        {chartType === "line" ? (
+          <>
+            {console.log("[DEBUG] Rendering Line chart component")}
+            <Line
+              ref={(ref) => {
+                chartRef.current = ref;
+                console.log("[DEBUG] Line chart reference set:", ref ? "success" : "null");
+              }}
+              data={chartData}
+              options={options}
+              onClick={handleChartClick}
+            />
+          </>
+        ) : chartType === "bar" ? (
+          <>
+            {console.log("[DEBUG] Rendering Bar chart component")}
+            <pre style={{display: 'none'}}>
+              {JSON.stringify(chartData, null, 2)}
+            </pre>
+            <Bar
+              ref={(ref) => {
+                chartRef.current = ref;
+                console.log("[DEBUG] Bar chart reference set:", ref ? "success" : "null", ref);
+              }}
+              data={chartData}
+              options={options}
+              onClick={handleChartClick}
+              redraw={true}
+            />
+          </>
+        ) : (
+          <Line
+            ref={chartRef}
+            data={chartData}
+            options={options}
+            onClick={handleChartClick}
+          />
+        )}
       </div>
       {selectedPoint && (
         <div className="mt-2 p-2 bg-gray-100 rounded border text-sm">
@@ -338,6 +509,51 @@ export const Chart = ({ data }) => {
           Time: {new Date(selectedPoint.timestamp).toLocaleString()}
           <br />
           Value: {selectedPoint.value}
+        </div>
+      )}
+      
+      {/* Debug panel with more detailed information */}
+      <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded text-xs font-mono">
+        <details>
+          <summary className="cursor-pointer text-gray-700 hover:text-blue-600">
+            Chart Debug Information
+          </summary>
+          <div className="mt-1 whitespace-pre-wrap text-gray-600">
+            <strong>Chart Type:</strong> {chartType}<br />
+            <strong>Active Sensor:</strong> {activeSensor}<br />
+            <strong>Data Points:</strong> {dataHistory[activeSensor].length}<br />
+            <strong>Chart Ref:</strong> {chartRef.current ? "Available" : "Not Available"}<br />
+            <strong>Bar Chart Settings:</strong><br />
+            {chartType === "bar" && chartData.datasets?.[0] ? 
+              <>
+              barPercentage: {chartData.datasets[0].barPercentage || "default"}<br />
+              categoryPercentage: {chartData.datasets[0].categoryPercentage || "default"}<br />
+              data points: {chartData.datasets[0].data?.length || 0}
+              </> : "N/A"}
+            <br />
+            <strong>Sample Data Point:</strong><br />
+            {chartData.datasets?.[0]?.data?.length > 0 
+              ? JSON.stringify(chartData.datasets[0].data[0], null, 2) 
+              : "No data"}
+          </div>
+        </details>
+      </div>
+
+      {/* Add debug information in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded text-xs font-mono">
+          <details>
+            <summary className="cursor-pointer text-gray-700 hover:text-blue-600">
+              Debug Information
+            </summary>
+            <div className="mt-1 whitespace-pre-wrap text-gray-600">
+              Chart Type: {chartType}
+              <br />
+              Active Sensor: {activeSensor}
+              <br />
+              Data Points: {dataHistory[activeSensor].length}
+            </div>
+          </details>
         </div>
       )}
     </div>

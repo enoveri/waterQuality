@@ -85,6 +85,15 @@ The application consists of three main components:
    http://localhost:3000
    ```
 
+## Deployment
+
+This application is configured for easy deployment to cloud platforms:
+
+- **Backend**: Optimized for deployment on Render with persistent storage
+- **Frontend**: Ready for Vercel deployment with global CDN
+
+For detailed deployment instructions, see the [DEPLOYMENT.md](./DEPLOYMENT.md) file.
+
 ## Key Features
 
 - **Real-time Monitoring**: View current water quality parameters with automatic updates
@@ -113,4 +122,4 @@ The application consists of three main components:
 
 ## License
 
-This project is licensed under the MIT License. 
+This project is licensed under the MIT License.

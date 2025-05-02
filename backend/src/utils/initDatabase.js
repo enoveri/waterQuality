@@ -13,6 +13,10 @@ const Alert = require('../models/Alert');
 const Threshold = require('../models/Threshold');
 const Device = require('../models/Device');
 
+// Check if running on free tier (environment variable can be set in Render)
+const isFreeTier = process.env.RENDER_SERVICE_TYPE === 'web' && !process.env.PAID_TIER;
+console.log(`Running in ${isFreeTier ? 'free tier' : 'standard'} mode`);
+
 // Default thresholds
 const defaultThresholds = [
   {
@@ -78,6 +82,13 @@ const randomElement = (array) => {
 
 // Generate sample water quality data
 const generateSampleData = async (days = 7, readingsPerDay = 24) => {
+  // Reduce data sample size if running on free tier
+  if (isFreeTier) {
+    console.log('Free tier detected: Generating reduced sample data set');
+    days = 3;           // Just 3 days of data instead of 7
+    readingsPerDay = 8; // 8 readings per day instead of 24
+  }
+  
   console.log(`Generating ${days} days of sample water quality data with ${readingsPerDay} readings per day...`);
   
   const sampleData = [];
@@ -153,7 +164,6 @@ const getMessage = (type, severity, value) => {
 
 // Generate appropriate value based on type and severity
 const generateValue = (type, severity) => {
-  // Different ranges based on type and severity
   const ranges = {
     temperature: {
       info: [22, 23, 27, 28],
@@ -179,7 +189,6 @@ const generateValue = (type, severity) => {
   
   const range = ranges[type][severity];
   
-  // For critical and warning, pick either low or high range
   if (severity === 'critical' || severity === 'warning') {
     const isLow = Math.random() > 0.5;
     if (isLow) {
@@ -189,12 +198,17 @@ const generateValue = (type, severity) => {
     }
   }
   
-  // For info, just pick a random value from the range
   return randomInt(range[0] * 10, range[3] * 10) / 10;
 };
 
 // Generate sample alerts
 const generateSampleAlerts = async (count = 50) => {
+  // Reduce alert count for free tier
+  if (isFreeTier) {
+    console.log('Free tier detected: Generating reduced alert set');
+    count = 20; // 20 alerts instead of 50
+  }
+
   console.log(`Generating ${count} sample alerts...`);
   
   const alertTypes = ['temperature', 'pH', 'turbidity', 'waterLevel'];
@@ -202,13 +216,11 @@ const generateSampleAlerts = async (count = 50) => {
   const sampleAlerts = [];
   const now = new Date();
   
-  // Create sample alerts
   for (let i = 0; i < count; i++) {
     const type = randomElement(alertTypes);
     const severity = randomElement(severities);
     const value = generateValue(type, severity);
     
-    // Random timestamp within the last 30 days
     const timestamp = new Date(now);
     timestamp.setDate(now.getDate() - randomInt(0, 30));
     timestamp.setHours(randomInt(0, 23));
@@ -222,14 +234,12 @@ const generateSampleAlerts = async (count = 50) => {
       value,
       timestamp,
       deviceId: 'esp32-sample',
-      status: Math.random() > 0.7 ? 'resolved' : 'active' // 30% resolved, 70% active
+      status: Math.random() > 0.7 ? 'resolved' : 'active'
     });
   }
   
-  // Sort by timestamp in descending order (newer first)
   sampleAlerts.sort((a, b) => b.timestamp - a.timestamp);
   
-  // Bulk insert the alerts
   await Alert.bulkCreate(sampleAlerts);
   
   console.log(`Successfully created ${sampleAlerts.length} sample alerts`);
@@ -242,7 +252,6 @@ const setupThresholds = async () => {
   let created = 0;
   let updated = 0;
   
-  // For each threshold, find or create
   for (const threshold of defaultThresholds) {
     const [thresholdRecord, isCreated] = await Threshold.findOrCreate({
       where: {
@@ -253,7 +262,6 @@ const setupThresholds = async () => {
     });
     
     if (!isCreated) {
-      // Update the existing threshold
       await thresholdRecord.update(threshold);
       updated++;
     } else {
@@ -287,42 +295,37 @@ const setupDevice = async () => {
 // Main initialization function
 const initializeDatabase = async () => {
   try {
-    // Ensure database directory exists
+    const memoryUsage = process.memoryUsage();
+    console.log(`Memory usage before initialization: RSS ${(memoryUsage.rss / 1024 / 1024).toFixed(2)} MB`);
+    
     const dbDir = path.dirname(process.env.DB_PATH || 'database/database.sqlite');
     if (!fs.existsSync(dbDir)) {
       console.log(`Creating database directory: ${dbDir}`);
       fs.mkdirSync(dbDir, { recursive: true });
     }
     
-    // Test connection
     await testConnection();
     console.log('Database connection successful');
     
-    // Sync all models with database (create tables)
     await sequelize.sync({ alter: true });
     console.log('Database schema synchronized');
     
-    // Set up device
     await setupDevice();
     
-    // Set up thresholds
     await setupThresholds();
     
-    // Generate sample data
-    const dataCount = await generateSampleData(14, 24); // 14 days of data with hourly readings
+    const dataCount = await generateSampleData(isFreeTier ? 3 : 14, isFreeTier ? 8 : 24);
     
-    // Generate sample alerts
-    const alertCount = await generateSampleAlerts(75); // 75 sample alerts
+    const alertCount = await generateSampleAlerts(isFreeTier ? 20 : 75);
     
     console.log('========================================');
-    console.log('Database initialization complete:');
+    console.log(`Database initialization complete (${isFreeTier ? 'FREE TIER' : 'STANDARD'})`);
     console.log(`- 1 device created`);
     console.log(`- 4 thresholds configured`);
     console.log(`- ${dataCount} data points generated`);
     console.log(`- ${alertCount} alerts generated`);
     console.log('========================================');
     
-    // Exit process
     process.exit(0);
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -330,5 +333,4 @@ const initializeDatabase = async () => {
   }
 };
 
-// Run the initialization
-initializeDatabase(); 
+initializeDatabase();

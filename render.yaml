@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: water-quality-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DB_PATH
+        value: /data/database.sqlite
+      - key: USE_FALLBACK
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
