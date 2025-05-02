@@ -172,13 +172,39 @@ export const Chart = ({ data, chartType = "line" }) => {
 
   // 3) Memoize data payload
   const chartData = useMemo(() => {
-    console.log(`[DEBUG] Building chart data for type=${chartType}, sensor=${activeSensor}, points=${dataHistory.timestamps.length}`);
+    console.log(`[DEBUG] Building chart data for type=${chartType}, sensor=${activeSensor}, points=${dataHistory.timestamps?.length || 0}`);
+    
+    // Safety check - if there's no data, return an empty dataset
+    if (!dataHistory || !dataHistory.timestamps || dataHistory.timestamps.length === 0) {
+      console.warn('[DEBUG] No data available for chart, returning empty dataset');
+      return {
+        datasets: [{
+          label: SENSORS[activeSensor]?.label || 'No Data',
+          data: []
+        }]
+      };
+    }
+    
+    // Safety check - ensure the active sensor exists in the data
+    if (!dataHistory[activeSensor] || !Array.isArray(dataHistory[activeSensor])) {
+      console.warn(`[DEBUG] No data available for sensor ${activeSensor}, returning empty dataset`);
+      return {
+        datasets: [{
+          label: SENSORS[activeSensor]?.label || 'No Data',
+          data: []
+        }]
+      };
+    }
     
     // Extract the data points
-    const rawDataPoints = dataHistory.timestamps.map((t, i) => ({
-      x: t,
-      y: dataHistory[activeSensor][i],
-    }));
+    const rawDataPoints = dataHistory.timestamps.map((t, i) => {
+      // Safety check - ensure the value exists and is a number
+      const value = dataHistory[activeSensor][i];
+      return {
+        x: t || new Date(), // Default to current time if timestamp is missing
+        y: typeof value === 'number' ? value : 0 // Default to 0 if value is missing or not a number
+      };
+    }).filter(point => point.x && point.y !== undefined); // Filter out any invalid points
     
     console.log(`[DEBUG] Raw data points created: ${rawDataPoints.length}`);
     console.log(`[DEBUG] First data point:`, rawDataPoints.length > 0 ? rawDataPoints[0] : 'none');
@@ -190,31 +216,38 @@ export const Chart = ({ data, chartType = "line" }) => {
       console.log("[DEBUG] Creating BAR chart dataset");
       
       // For bar charts, we need to ensure the data is formatted correctly
-      // Chart.js expects {x, y} format for time scale bar charts
       datasetConfig = {
-        label: SENSORS[activeSensor].label,
+        label: SENSORS[activeSensor]?.label || 'Unknown Sensor',
         data: rawDataPoints,
-        backgroundColor: SENSORS[activeSensor].color,
-        borderColor: SENSORS[activeSensor].color,
+        backgroundColor: SENSORS[activeSensor]?.color || 'rgb(75,192,192)',
+        borderColor: SENSORS[activeSensor]?.color || 'rgb(75,192,192)',
         borderWidth: 1,
         barPercentage: 0.8,
         categoryPercentage: 0.9,
       };
       
       // Get more bar chart configuration from adapter if available
-      if (typeof getBarChartConfig === 'function') {
-        const barConfig = getBarChartConfig(dataHistory.timestamps, "auto");
-        console.log("[DEBUG] Bar chart adapter config:", barConfig);
-        Object.assign(datasetConfig, barConfig);
+      try {
+        if (typeof getBarChartConfig === 'function') {
+          const timestamps = dataHistory.timestamps || [];
+          const barConfig = getBarChartConfig(timestamps, "auto");
+          console.log("[DEBUG] Bar chart adapter config:", barConfig);
+          if (barConfig && typeof barConfig === 'object') {
+            Object.assign(datasetConfig, barConfig);
+          }
+        }
+      } catch (error) {
+        console.error("[ERROR] Failed to get bar chart config:", error);
+        // Continue with default config
       }
     } else {
       // Line chart configuration
       console.log("[DEBUG] Creating LINE chart dataset");
       datasetConfig = {
-        label: SENSORS[activeSensor].label,
+        label: SENSORS[activeSensor]?.label || 'Unknown Sensor',
         data: rawDataPoints,
-        borderColor: SENSORS[activeSensor].color,
-        backgroundColor: SENSORS[activeSensor].fill,
+        borderColor: SENSORS[activeSensor]?.color || 'rgb(75,192,192)',
+        backgroundColor: SENSORS[activeSensor]?.fill || 'rgba(75,192,192,0.2)',
         tension: 0.2,
         fill: true,
         pointRadius: 0,
@@ -228,9 +261,9 @@ export const Chart = ({ data, chartType = "line" }) => {
 
     // Add extensive debugging for chart data 
     console.log(`[DEBUG] Final ${chartType} chart dataset:`, datasetConfig);
-    console.log(`[DEBUG] Dataset has ${datasetConfig.data.length} points`);
+    console.log(`[DEBUG] Dataset has ${datasetConfig.data?.length || 0} points`);
     
-    if (datasetConfig.data.length > 0) {
+    if (datasetConfig.data && datasetConfig.data.length > 0) {
       // Check for any null or undefined values that could break the chart
       const hasInvalidData = datasetConfig.data.some(
         point => point.x === null || point.x === undefined || point.y === null || point.y === undefined
