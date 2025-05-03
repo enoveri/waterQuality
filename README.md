@@ -9,6 +9,7 @@ The application consists of three main components:
 1. **ESP32 Device**: Collects water quality parameters (temperature, pH, turbidity, water level) and sends them to the backend server.
 
 2. **Backend Server**: An Express.js application that:
+
    - Stores data in a SQLite database using Sequelize ORM
    - Provides REST API endpoints for data access
    - Processes alerts based on configurable thresholds
@@ -31,23 +32,27 @@ The application consists of three main components:
 #### Backend Setup
 
 1. Navigate to the backend directory:
+
    ```
    cd backend
    ```
 
 2. Install dependencies:
+
    ```
    npm install
    ```
 
 3. Configure environment variables:
    Create a `.env` file in the backend directory with:
+
    ```
    PORT=3001
    DB_PATH=database/database.sqlite
    ```
 
 4. Initialize the database with sample data:
+
    ```
    npm run db:init
    ```
@@ -60,22 +65,26 @@ The application consists of three main components:
 #### Frontend Setup
 
 1. Navigate to the frontend directory:
+
    ```
    cd frontend
    ```
 
 2. Install dependencies:
+
    ```
    npm install
    ```
 
 3. Configure environment variables:
    Create a `.env` file in the frontend directory with:
+
    ```
    REACT_APP_API_URL=http://localhost:3001/api
    ```
 
 4. Start the frontend development server:
+
    ```
    npm start
    ```

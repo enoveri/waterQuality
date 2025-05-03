@@ -32,13 +32,14 @@ This approach gives us the best combination of reliable backend hosting and high
      - **Build Command**: `npm install`
      - **Start Command**: `npm start`
      - **Root Directory**: `/backend`
-     
 4. **Configure environment variables**:
+
    - `NODE_ENV`: `production`
    - `PORT`: `10000` (Render will automatically assign a port but we set it for clarity)
    - `DB_PATH`: `/data/database.sqlite` (using persistent disk)
 
 5. **Set up disk storage**:
+
    - Add a disk with at least 1GB storage
    - Mount path: `/data`
    - This ensures your SQLite database persists between deployments
@@ -54,10 +55,12 @@ This approach gives us the best combination of reliable backend hosting and high
 2. **Connect your GitHub repository** to Vercel
 
 3. **Import your project**:
+
    - Select the repository
    - Vercel will automatically detect it's a Vite project
 
 4. **Configure project settings**:
+
    - **Project Name**: water-quality-frontend
    - **Framework Preset**: Vite
    - **Root Directory**: `/frontend`
@@ -65,6 +68,7 @@ This approach gives us the best combination of reliable backend hosting and high
    - **Output Directory**: `dist`
 
 5. **Set environment variables**:
+
    - None required as configuration is handled in the code
 
 6. **Deploy**:
@@ -97,4 +101,4 @@ If you need the ESP32 device to connect to your deployed backend:
 
 ---
 
-*This deployment configuration optimizes for modern web application best practices, using specialized services for both frontend and backend components.*
+_This deployment configuration optimizes for modern web application best practices, using specialized services for both frontend and backend components._

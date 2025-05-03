@@ -146,7 +146,10 @@ export function MiniChart({ data, label, color, unit, metric, metrics }) {
           title: function (context) {
             try {
               // Check if we're in legacy mode (direct array of values)
-              if (!metrics && typeof lastItems[context[0].dataIndex] === 'number') {
+              if (
+                !metrics &&
+                typeof lastItems[context[0].dataIndex] === "number"
+              ) {
                 return ""; // No timestamp available in legacy mode
               }
 
@@ -177,7 +180,10 @@ export function MiniChart({ data, label, color, unit, metric, metrics }) {
           afterTitle: function (context) {
             try {
               // Check if we're in legacy mode
-              if (!metrics && typeof lastItems[context[0].dataIndex] === 'number') {
+              if (
+                !metrics &&
+                typeof lastItems[context[0].dataIndex] === "number"
+              ) {
                 return ""; // No timestamp in legacy mode
               }
 
@@ -245,13 +251,13 @@ export function MiniChart({ data, label, color, unit, metric, metrics }) {
   // Get current value based on data format
   const value = useMemo(() => {
     if (!lastItems || lastItems.length === 0) return "N/A";
-    
+
     // Handle legacy mode (direct array of values)
     if (!metrics) {
       const lastValue = lastItems[lastItems.length - 1];
-      return typeof lastValue === 'number' ? lastValue : "N/A";
+      return typeof lastValue === "number" ? lastValue : "N/A";
     }
-    
+
     // Modern mode with timestamp/value objects
     return lastItems[lastItems.length - 1]?.value ?? "N/A";
   }, [lastItems, metrics]);

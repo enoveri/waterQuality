@@ -4,66 +4,67 @@
  * Run with: node src/utils/initDatabase.js
  */
 
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const { sequelize, testConnection } = require('../config/database');
-const WaterQualityData = require('../models/WaterQualityData');
-const Alert = require('../models/Alert');
-const Threshold = require('../models/Threshold');
-const Device = require('../models/Device');
+require("dotenv").config();
+const fs = require("fs");
+const path = require("path");
+const { sequelize, testConnection } = require("../config/database");
+const WaterQualityData = require("../models/WaterQualityData");
+const Alert = require("../models/Alert");
+const Threshold = require("../models/Threshold");
+const Device = require("../models/Device");
 
 // Check if running on free tier (environment variable can be set in Render)
-const isFreeTier = process.env.RENDER_SERVICE_TYPE === 'web' && !process.env.PAID_TIER;
-console.log(`Running in ${isFreeTier ? 'free tier' : 'standard'} mode`);
+const isFreeTier =
+  process.env.RENDER_SERVICE_TYPE === "web" && !process.env.PAID_TIER;
+console.log(`Running in ${isFreeTier ? "free tier" : "standard"} mode`);
 
 // Default thresholds
 const defaultThresholds = [
   {
-    parameter: 'temperature',
+    parameter: "temperature",
     minWarning: 20,
     maxWarning: 28,
     minCritical: 15,
     maxCritical: 32,
     enabled: true,
-    deviceId: 'esp32-sample'
+    deviceId: "esp32-sample",
   },
   {
-    parameter: 'pH',
+    parameter: "pH",
     minWarning: 6.5,
     maxWarning: 8.0,
     minCritical: 6.0,
     maxCritical: 9.0,
     enabled: true,
-    deviceId: 'esp32-sample'
+    deviceId: "esp32-sample",
   },
   {
-    parameter: 'turbidity',
+    parameter: "turbidity",
     minWarning: 0,
     maxWarning: 3.0,
     minCritical: 0,
     maxCritical: 5.0,
     enabled: true,
-    deviceId: 'esp32-sample'
+    deviceId: "esp32-sample",
   },
   {
-    parameter: 'waterLevel',
+    parameter: "waterLevel",
     minWarning: 30,
     maxWarning: 70,
     minCritical: 20,
     maxCritical: 80,
     enabled: true,
-    deviceId: 'esp32-sample'
-  }
+    deviceId: "esp32-sample",
+  },
 ];
 
 // Default device
 const defaultDevice = {
-  id: 'esp32-sample',
-  name: 'Sample ESP32 Device',
-  location: 'Test Location',
-  description: 'A sample device for testing',
-  lastSeenAt: new Date()
+  id: "esp32-sample",
+  name: "Sample ESP32 Device",
+  location: "Test Location",
+  description: "A sample device for testing",
+  lastSeenAt: new Date(),
 };
 
 // Random helpers
@@ -84,16 +85,18 @@ const randomElement = (array) => {
 const generateSampleData = async (days = 7, readingsPerDay = 24) => {
   // Reduce data sample size if running on free tier
   if (isFreeTier) {
-    console.log('Free tier detected: Generating reduced sample data set');
-    days = 3;           // Just 3 days of data instead of 7
+    console.log("Free tier detected: Generating reduced sample data set");
+    days = 3; // Just 3 days of data instead of 7
     readingsPerDay = 8; // 8 readings per day instead of 24
   }
-  
-  console.log(`Generating ${days} days of sample water quality data with ${readingsPerDay} readings per day...`);
-  
+
+  console.log(
+    `Generating ${days} days of sample water quality data with ${readingsPerDay} readings per day...`
+  );
+
   const sampleData = [];
   const now = new Date();
-  
+
   // Create entries for each day
   for (let day = 0; day < days; day++) {
     for (let reading = 0; reading < readingsPerDay; reading++) {
@@ -103,33 +106,49 @@ const generateSampleData = async (days = 7, readingsPerDay = 24) => {
       timestamp.setHours(Math.floor(24 / readingsPerDay) * reading);
       timestamp.setMinutes(0);
       timestamp.setSeconds(0);
-      
+
       // Generate random values with some variance but within reasonable ranges
       const baseTemp = 25; // baseline temperature in Celsius
       const basePh = 7.0; // neutral pH
       const baseTurb = 2.5; // baseline turbidity in NTU
       const baseWaterLevel = 50; // baseline water level in cm
-      
+
       // Add some daily variance
       const dayVariance = Math.sin(day * 0.5) * 2;
       // Add some hourly variance
       const hourVariance = Math.sin(reading * 0.25) * 1;
-      
+
       // Create the data entry
       sampleData.push({
-        temperature: randomValue(baseTemp - 3 + dayVariance, baseTemp + 3 + dayVariance, 1),
-        pH: randomValue(basePh - 0.5 + (dayVariance * 0.1), basePh + 0.5 + (dayVariance * 0.1), 2),
-        turbidity: randomValue(baseTurb - 1 + (hourVariance * 0.5), baseTurb + 1 + (hourVariance * 0.5), 2),
-        waterLevel: randomValue(baseWaterLevel - 10 + (dayVariance * 2), baseWaterLevel + 10 + (dayVariance * 2), 0),
-        deviceId: 'esp32-sample',
-        timestamp
+        temperature: randomValue(
+          baseTemp - 3 + dayVariance,
+          baseTemp + 3 + dayVariance,
+          1
+        ),
+        pH: randomValue(
+          basePh - 0.5 + dayVariance * 0.1,
+          basePh + 0.5 + dayVariance * 0.1,
+          2
+        ),
+        turbidity: randomValue(
+          baseTurb - 1 + hourVariance * 0.5,
+          baseTurb + 1 + hourVariance * 0.5,
+          2
+        ),
+        waterLevel: randomValue(
+          baseWaterLevel - 10 + dayVariance * 2,
+          baseWaterLevel + 10 + dayVariance * 2,
+          0
+        ),
+        deviceId: "esp32-sample",
+        timestamp,
       });
     }
   }
-  
+
   // Bulk insert the data
   await WaterQualityData.bulkCreate(sampleData);
-  
+
   console.log(`Successfully created ${sampleData.length} sample data entries`);
   return sampleData.length;
 };
@@ -140,25 +159,25 @@ const getMessage = (type, severity, value) => {
     temperature: {
       info: `Temperature slightly out of optimal range at ${value}°C`,
       warning: `Temperature approaching critical levels at ${value}°C`,
-      critical: `Critical temperature detected at ${value}°C!`
+      critical: `Critical temperature detected at ${value}°C!`,
     },
     pH: {
       info: `pH level slightly abnormal at ${value}`,
       warning: `pH level approaching critical range at ${value}`,
-      critical: `Critical pH level detected at ${value}!`
+      critical: `Critical pH level detected at ${value}!`,
     },
     turbidity: {
       info: `Water clarity slightly reduced at ${value} NTU`,
       warning: `Water clarity significantly reduced at ${value} NTU`,
-      critical: `Critical turbidity level detected at ${value} NTU!`
+      critical: `Critical turbidity level detected at ${value} NTU!`,
     },
     waterLevel: {
       info: `Water level slightly outside normal range at ${value}cm`,
       warning: `Water level approaching critical threshold at ${value}cm`,
-      critical: `Critical water level detected at ${value}cm!`
-    }
+      critical: `Critical water level detected at ${value}cm!`,
+    },
   };
-  
+
   return messages[type][severity];
 };
 
@@ -168,28 +187,28 @@ const generateValue = (type, severity) => {
     temperature: {
       info: [22, 23, 27, 28],
       warning: [18, 21, 29, 32],
-      critical: [10, 17, 33, 40]
+      critical: [10, 17, 33, 40],
     },
     pH: {
       info: [6.5, 6.8, 7.5, 7.8],
       warning: [6.0, 6.4, 7.9, 8.5],
-      critical: [4.0, 5.9, 8.6, 10.0]
+      critical: [4.0, 5.9, 8.6, 10.0],
     },
     turbidity: {
       info: [3.0, 4.0],
       warning: [4.1, 6.0],
-      critical: [6.1, 10.0]
+      critical: [6.1, 10.0],
     },
     waterLevel: {
       info: [35, 45, 55, 65],
       warning: [25, 34, 66, 75],
-      critical: [10, 24, 76, 90]
-    }
+      critical: [10, 24, 76, 90],
+    },
   };
-  
+
   const range = ranges[type][severity];
-  
-  if (severity === 'critical' || severity === 'warning') {
+
+  if (severity === "critical" || severity === "warning") {
     const isLow = Math.random() > 0.5;
     if (isLow) {
       return randomInt(range[0] * 10, range[1] * 10) / 10;
@@ -197,7 +216,7 @@ const generateValue = (type, severity) => {
       return randomInt(range[2] * 10, range[3] * 10) / 10;
     }
   }
-  
+
   return randomInt(range[0] * 10, range[3] * 10) / 10;
 };
 
@@ -205,62 +224,62 @@ const generateValue = (type, severity) => {
 const generateSampleAlerts = async (count = 50) => {
   // Reduce alert count for free tier
   if (isFreeTier) {
-    console.log('Free tier detected: Generating reduced alert set');
+    console.log("Free tier detected: Generating reduced alert set");
     count = 20; // 20 alerts instead of 50
   }
 
   console.log(`Generating ${count} sample alerts...`);
-  
-  const alertTypes = ['temperature', 'pH', 'turbidity', 'waterLevel'];
-  const severities = ['info', 'warning', 'critical'];
+
+  const alertTypes = ["temperature", "pH", "turbidity", "waterLevel"];
+  const severities = ["info", "warning", "critical"];
   const sampleAlerts = [];
   const now = new Date();
-  
+
   for (let i = 0; i < count; i++) {
     const type = randomElement(alertTypes);
     const severity = randomElement(severities);
     const value = generateValue(type, severity);
-    
+
     const timestamp = new Date(now);
     timestamp.setDate(now.getDate() - randomInt(0, 30));
     timestamp.setHours(randomInt(0, 23));
     timestamp.setMinutes(randomInt(0, 59));
     timestamp.setSeconds(randomInt(0, 59));
-    
+
     sampleAlerts.push({
       type,
       severity,
       message: getMessage(type, severity, value),
       value,
       timestamp,
-      deviceId: 'esp32-sample',
-      status: Math.random() > 0.7 ? 'resolved' : 'active'
+      deviceId: "esp32-sample",
+      status: Math.random() > 0.7 ? "resolved" : "active",
     });
   }
-  
+
   sampleAlerts.sort((a, b) => b.timestamp - a.timestamp);
-  
+
   await Alert.bulkCreate(sampleAlerts);
-  
+
   console.log(`Successfully created ${sampleAlerts.length} sample alerts`);
   return sampleAlerts.length;
 };
 
 // Create or update thresholds
 const setupThresholds = async () => {
-  console.log('Setting up thresholds...');
+  console.log("Setting up thresholds...");
   let created = 0;
   let updated = 0;
-  
+
   for (const threshold of defaultThresholds) {
     const [thresholdRecord, isCreated] = await Threshold.findOrCreate({
       where: {
         parameter: threshold.parameter,
-        deviceId: threshold.deviceId
+        deviceId: threshold.deviceId,
       },
-      defaults: threshold
+      defaults: threshold,
     });
-    
+
     if (!isCreated) {
       await thresholdRecord.update(threshold);
       updated++;
@@ -268,27 +287,29 @@ const setupThresholds = async () => {
       created++;
     }
   }
-  
-  console.log(`Thresholds setup complete: ${created} created, ${updated} updated`);
+
+  console.log(
+    `Thresholds setup complete: ${created} created, ${updated} updated`
+  );
   return { created, updated };
 };
 
 // Create or update device
 const setupDevice = async () => {
-  console.log('Setting up device...');
-  
+  console.log("Setting up device...");
+
   const [device, created] = await Device.findOrCreate({
     where: { id: defaultDevice.id },
-    defaults: defaultDevice
+    defaults: defaultDevice,
   });
-  
+
   if (!created) {
     await device.update(defaultDevice);
     console.log(`Updated existing device: ${defaultDevice.id}`);
   } else {
     console.log(`Created new device: ${defaultDevice.id}`);
   }
-  
+
   return device;
 };
 
@@ -296,39 +317,54 @@ const setupDevice = async () => {
 const initializeDatabase = async () => {
   try {
     const memoryUsage = process.memoryUsage();
-    console.log(`Memory usage before initialization: RSS ${(memoryUsage.rss / 1024 / 1024).toFixed(2)} MB`);
-    
-    const dbDir = path.dirname(process.env.DB_PATH || 'database/database.sqlite');
+    console.log(
+      `Memory usage before initialization: RSS ${(
+        memoryUsage.rss /
+        1024 /
+        1024
+      ).toFixed(2)} MB`
+    );
+
+    const dbDir = path.dirname(
+      process.env.DB_PATH || "database/database.sqlite"
+    );
     if (!fs.existsSync(dbDir)) {
       console.log(`Creating database directory: ${dbDir}`);
       fs.mkdirSync(dbDir, { recursive: true });
     }
-    
+
     await testConnection();
-    console.log('Database connection successful');
-    
+    console.log("Database connection successful");
+
     await sequelize.sync({ alter: true });
-    console.log('Database schema synchronized');
-    
+    console.log("Database schema synchronized");
+
     await setupDevice();
-    
+
     await setupThresholds();
-    
-    const dataCount = await generateSampleData(isFreeTier ? 3 : 14, isFreeTier ? 8 : 24);
-    
+
+    const dataCount = await generateSampleData(
+      isFreeTier ? 3 : 14,
+      isFreeTier ? 8 : 24
+    );
+
     const alertCount = await generateSampleAlerts(isFreeTier ? 20 : 75);
-    
-    console.log('========================================');
-    console.log(`Database initialization complete (${isFreeTier ? 'FREE TIER' : 'STANDARD'})`);
+
+    console.log("========================================");
+    console.log(
+      `Database initialization complete (${
+        isFreeTier ? "FREE TIER" : "STANDARD"
+      })`
+    );
     console.log(`- 1 device created`);
     console.log(`- 4 thresholds configured`);
     console.log(`- ${dataCount} data points generated`);
     console.log(`- ${alertCount} alerts generated`);
-    console.log('========================================');
-    
+    console.log("========================================");
+
     process.exit(0);
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error("Error initializing database:", error);
     process.exit(1);
   }
 };
@@ -344,5 +380,5 @@ module.exports = {
   setupThresholds,
   generateSampleData,
   generateSampleAlerts,
-  initializeDatabase
+  initializeDatabase,
 };

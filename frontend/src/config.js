@@ -5,10 +5,10 @@ const getApiBaseUrl = () => {
   // For production builds on Vercel
   if (import.meta.env.PROD) {
     // Return the Render backend URL
-    return 'https://waterquality-uba1.onrender.com/api';
+    return "https://waterquality-uba1.onrender.com/api";
   }
   // For local development
-  return 'http://localhost:3001/api';
+  return "http://localhost:3001/api";
 };
 
 export const API_BASE_URL = getApiBaseUrl();

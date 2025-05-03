@@ -8,13 +8,17 @@ const LOG_LEVELS = {
   ERROR: 0,
   WARN: 1,
   INFO: 2,
-  DEBUG: 3
+  DEBUG: 3,
 };
 
 // Get current log level from environment or default to INFO
 const getCurrentLevel = () => {
-  const envLevel = process.env.LOG_LEVEL ? process.env.LOG_LEVEL.toUpperCase() : 'INFO';
-  return LOG_LEVELS[envLevel] !== undefined ? LOG_LEVELS[envLevel] : LOG_LEVELS.INFO;
+  const envLevel = process.env.LOG_LEVEL
+    ? process.env.LOG_LEVEL.toUpperCase()
+    : "INFO";
+  return LOG_LEVELS[envLevel] !== undefined
+    ? LOG_LEVELS[envLevel]
+    : LOG_LEVELS.INFO;
 };
 
 // Current log level
@@ -27,33 +31,35 @@ const logger = {
       console.error(`[${new Date().toISOString()}] [ERROR]`, ...args);
     }
   },
-  
+
   warn: (...args) => {
     if (currentLevel >= LOG_LEVELS.WARN) {
       console.warn(`[${new Date().toISOString()}] [WARN]`, ...args);
     }
   },
-  
+
   info: (...args) => {
     if (currentLevel >= LOG_LEVELS.INFO) {
       console.info(`[${new Date().toISOString()}] [INFO]`, ...args);
     }
   },
-  
+
   debug: (...args) => {
     if (currentLevel >= LOG_LEVELS.DEBUG) {
       console.debug(`[${new Date().toISOString()}] [DEBUG]`, ...args);
     }
   },
-  
+
   // For API request logging
   request: (req, status, time) => {
     if (currentLevel >= LOG_LEVELS.INFO) {
       console.info(
-        `[${new Date().toISOString()}] [REQUEST] ${req.method} ${req.url} ${status} ${time}ms`
+        `[${new Date().toISOString()}] [REQUEST] ${req.method} ${
+          req.url
+        } ${status} ${time}ms`
       );
     }
-  }
+  },
 };
 
 module.exports = logger;
